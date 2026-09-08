@@ -1,0 +1,219 @@
+{
+  "meta": {
+    "title": "Абонементы группы",
+    "today": "2026-09-08",
+    "_demo": "Данные выдуманы: имена, даты и оплаты не настоящие. Это витрина интерфейса."
+  },
+  "studio": {
+    "abonementLessons": 8,
+    "abonementPrice": 2500,
+    "dropInPrice": 600
+  },
+  "teacher": {
+    "telegramId": 0,
+    "name": "Преподаватель"
+  },
+  "sharedLesson": {
+    "weekday": 2,
+    "time": "19:00",
+    "title": "Общее занятие"
+  },
+  "groups": [
+    {
+      "id": "g1",
+      "name": "Группа 1",
+      "weekday": 5,
+      "dayLabel": "пятница",
+      "time": "19:00",
+      "capacity": 5
+    },
+    {
+      "id": "g2",
+      "name": "Группа 2",
+      "weekday": 6,
+      "dayLabel": "суббота",
+      "time": "09:00",
+      "capacity": 5
+    }
+  ],
+  "cancelled": [],
+  "guests": [
+    {
+      "id": "v1",
+      "name": "Гостья",
+      "date": "2026-09-08",
+      "price": 600
+    }
+  ],
+  "students": [
+    {
+      "id": "s1",
+      "name": "Алиса",
+      "groupId": "g1",
+      "telegramId": null,
+      "code": "AL-4K7M",
+      "since": "2026-03-01",
+      "joined": "2026-08-18",
+      "abonement": {
+        "no": 1,
+        "paidAt": "2026-08-17"
+      },
+      "marks": {
+        "2026-08-18": "attended",
+        "2026-08-21": "attended",
+        "2026-08-25": "attended",
+        "2026-08-28": "attended",
+        "2026-09-01": "missed",
+        "2026-09-04": "attended"
+      },
+      "makeups": [
+        {
+          "date": "2026-09-05",
+          "for": "2026-09-01",
+          "groupId": "g2"
+        }
+      ],
+      "payments": [
+        {
+          "date": "2026-08-17",
+          "no": 1,
+          "amount": 2500
+        }
+      ]
+    },
+    {
+      "id": "s2",
+      "name": "Марта",
+      "groupId": "g1",
+      "telegramId": null,
+      "code": "MA-8P2Q",
+      "since": "2025-11-01",
+      "joined": "2026-08-14",
+      "abonement": {
+        "no": 1,
+        "paidAt": "2026-08-13"
+      },
+      "marks": {
+        "2026-08-14": "attended",
+        "2026-08-18": "attended",
+        "2026-08-21": "attended",
+        "2026-08-25": "attended",
+        "2026-08-28": "attended",
+        "2026-09-01": "attended",
+        "2026-09-04": "attended"
+      },
+      "makeups": [],
+      "payments": [
+        {
+          "date": "2026-08-13",
+          "no": 1,
+          "amount": 2500
+        }
+      ]
+    },
+    {
+      "id": "s3",
+      "name": "Нина",
+      "groupId": "g1",
+      "telegramId": null,
+      "code": "NI-3B9N",
+      "since": "2026-06-01",
+      "joined": "2026-08-07",
+      "abonement": {
+        "no": 1,
+        "paidAt": "2026-08-06"
+      },
+      "marks": {
+        "2026-08-07": "attended",
+        "2026-08-11": "attended",
+        "2026-08-14": "attended",
+        "2026-08-18": "attended",
+        "2026-08-21": "missed",
+        "2026-08-25": "attended",
+        "2026-08-28": "attended",
+        "2026-09-01": "attended"
+      },
+      "makeups": [],
+      "payments": [
+        {
+          "date": "2026-08-06",
+          "no": 1,
+          "amount": 2500
+        }
+      ]
+    },
+    {
+      "id": "s4",
+      "name": "Полина",
+      "groupId": "g2",
+      "telegramId": null,
+      "code": "PO-6R5T",
+      "since": "2026-07-01",
+      "joined": "2026-08-29",
+      "abonement": {
+        "no": 1,
+        "paidAt": "2026-08-27"
+      },
+      "marks": {
+        "2026-08-29": "attended",
+        "2026-09-01": "attended",
+        "2026-09-05": "missed"
+      },
+      "makeups": [],
+      "payments": [
+        {
+          "date": "2026-08-27",
+          "no": 1,
+          "amount": 2500
+        }
+      ]
+    },
+    {
+      "id": "s5",
+      "name": "Рита",
+      "groupId": "g2",
+      "telegramId": null,
+      "code": "RI-2W8J",
+      "since": "2022-04-01",
+      "joined": "2026-09-01",
+      "abonement": {
+        "no": 1,
+        "paidAt": "2026-08-31"
+      },
+      "marks": {
+        "2026-09-01": "attended",
+        "2026-09-05": "attended"
+      },
+      "makeups": [],
+      "payments": [
+        {
+          "date": "2026-08-31",
+          "no": 1,
+          "amount": 2500
+        }
+      ]
+    },
+    {
+      "id": "s6",
+      "name": "София",
+      "groupId": "g2",
+      "telegramId": null,
+      "code": "SO-9X4C",
+      "since": "2026-09-08",
+      "joined": "2026-09-08",
+      "abonement": {
+        "no": 1,
+        "paidAt": "2026-09-08"
+      },
+      "marks": {},
+      "makeups": [],
+      "payments": [
+        {
+          "date": "2026-09-08",
+          "no": 1,
+          "amount": 2500
+        }
+      ]
+    }
+  ]
+}
