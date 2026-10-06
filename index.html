@@ -674,7 +674,7 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
     /* первое занятие каждого абонемента — отсюда он и считается */
     var starts = {};
     (s.payments || []).forEach(function (pm) {
-      var k0 = firstLesson(s, pm.date);
+      var k0 = firstLesson(s, pm.starts || pm.date);
       if (k0) starts[k0] = pm.no;
     });
     var can = {}; makeupOptions(s).forEach(function (o) { can[o.date] = o; });
@@ -737,7 +737,8 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
       '<div class="row" style="gap:8px;border-top:1px solid var(--bord);padding-top:10px;margin-top:2px">' +
       '<svg class="ico" style="width:14px;height:14px;color:var(--raspL);stroke-width:2">' + SVG.clock + '</svg>' +
       '<div style="font-size:11.5px;font-weight:600;color:var(--ink2)">Абонемент №' + s.abonement.no + ': ' +
-      fmt(st.dates[0]) + ' — ' + fmt(st.last) + ' · оплачен ' + fmt(s.abonement.paidAt) + '</div></div>';
+      fmt(st.dates[0]) + ' — ' + fmt(st.last) + ' · оплачен ' + fmt(s.abonement.paidAt) +
+      (st.startsAt && st.startsAt !== s.abonement.paidAt ? ', занятия в долг зачтены' : '') + '</div></div>';
 
     var node = el('<div class="col" style="gap:14px">' +
       '<div class="row" style="justify-content:space-between"><div class="h1">Календарь</div>' +
