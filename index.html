@@ -80,6 +80,10 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
 .cal .next     span{background:var(--vioT);color:var(--vioL);font-weight:700}
 .cal .pay      span{background:var(--amberT);border:1.5px dashed var(--amber);color:var(--amber);font-weight:700}
 .cal .canmake  span{background:var(--mintT);border:1.5px dashed var(--mint);color:var(--mintL);font-weight:700}
+.cal .start{position:relative}
+.cal .start span{box-shadow:0 0 0 2px var(--surf),0 0 0 3.5px var(--vioL)}
+.cal .start::after{content:'';position:absolute;top:1px;right:3px;width:6px;height:6px;border-radius:50%;
+  background:var(--vioL);box-shadow:0 0 0 2px var(--surf)}
 .wd{text-align:center;font-size:10px;font-weight:700;color:var(--ink2);text-transform:uppercase;letter-spacing:.04em}
 .leg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
 .leg div{display:flex;align-items:center;gap:6px;font-size:10.5px;font-weight:600;color:var(--ink2)}
@@ -667,6 +671,12 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
     var days = new Date(y, mo + 1, 0).getDate();
     var lead = (first.getDay() + 6) % 7;
     var makeupDates = {}; makeupsOf(s).forEach(function (m) { makeupDates[m.date] = 1; });
+    /* первое занятие каждого абонемента — отсюда он и считается */
+    var starts = {};
+    (s.payments || []).forEach(function (pm) {
+      var k0 = firstLesson(s, pm.date);
+      if (k0) starts[k0] = pm.no;
+    });
     var can = {}; makeupOptions(s).forEach(function (o) { can[o.date] = o; });
 
     var cells = '';
@@ -684,7 +694,10 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
       }
       if (cls === '' && can[k]) cls = 'canmake';
       if (k === TODAY && cls === '') cls = 'today';
-      cells += '<div class="d ' + cls + '"><span>' + day + '</span></div>';
+      if (starts[k]) cls += (cls ? ' ' : '') + 'start';
+      cells += '<div class="d ' + cls + '"' +
+        (starts[k] ? ' title="начало абонемента №' + starts[k] + '"' : '') +
+        '><span>' + day + '</span></div>';
     }
     var tail = (7 - ((lead + days) % 7)) % 7;
     for (var j = 0; j < tail; j++) cells += '<div class="d"></div>';
@@ -696,7 +709,8 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
       ['border:2px solid var(--ink)', 'сегодня'],
       ['background:var(--vioT);border:1.5px solid var(--vio)', 'впереди'],
       ['background:var(--amberT);border:1.5px dashed var(--amber)', 'оплата'],
-      ['background:var(--mintT);border:1.5px dashed var(--mint)', 'можно прийти']
+      ['background:var(--mintT);border:1.5px dashed var(--mint)', 'можно прийти'],
+      ['background:var(--vioT);box-shadow:0 0 0 1.5px var(--vioL)', 'новый абонемент']
     ].map(function (x) { return '<div><span class="sw" style="' + x[0] + '"></span>' + x[1] + '</div>'; }).join('');
 
     var ahead = st.dates.filter(function (k) { return k > TODAY && k.slice(0, 7) === month; }).map(function (k) {
