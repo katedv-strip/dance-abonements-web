@@ -7,6 +7,14 @@
 <meta http-equiv="pragma" content="no-cache">
 <meta http-equiv="expires" content="0">
 <title>Абонементы группы</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0D050C">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Strip">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png" sizes="192x192" type="image/png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700;800&family=Manrope:wght@500;600;700;800&display=swap">
 <style>
 :root{
@@ -49,6 +57,15 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
 .pips{display:flex;gap:5px}
 .pips i{height:9px;flex:1 1 0;border-radius:5px;background:var(--empty)}
 .pips i.on{background:var(--rasp);box-shadow:0 0 10px rgba(245,21,107,.5)}
+.pips i.fresh{animation:pipOn 1.6s cubic-bezier(.2,.8,.2,1) both}
+@keyframes pipOn{
+  0%{background:var(--empty);box-shadow:none;transform:scaleY(1)}
+  30%{background:#fff;box-shadow:0 0 22px 4px rgba(255,92,147,.95);transform:scaleY(1.9)}
+  60%{background:var(--raspM);box-shadow:0 0 16px 2px rgba(245,21,107,.8);transform:scaleY(1.2)}
+  100%{background:var(--rasp);box-shadow:0 0 10px rgba(245,21,107,.5);transform:scaleY(1)}
+}
+.bump{animation:bump 1.1s cubic-bezier(.2,.8,.2,1) both;display:inline-block}
+@keyframes bump{0%{transform:scale(1);opacity:.4}35%{transform:scale(1.35);opacity:1}100%{transform:scale(1)}}
 .ring{position:relative;width:88px;height:88px}
 .ring .mid{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}
 .big{font-family:var(--disp);font-weight:800;line-height:1}
@@ -62,6 +79,7 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
 .cal .today    span{background:var(--surf);border:2px solid var(--ink);color:var(--ink);font-weight:800}
 .cal .next     span{background:var(--vioT);color:var(--vioL);font-weight:700}
 .cal .pay      span{background:var(--amberT);border:1.5px dashed var(--amber);color:var(--amber);font-weight:700}
+.cal .canmake  span{background:var(--mintT);border:1.5px dashed var(--mint);color:var(--mintL);font-weight:700}
 .wd{text-align:center;font-size:10px;font-weight:700;color:var(--ink2);text-transform:uppercase;letter-spacing:.04em}
 .leg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
 .leg div{display:flex;align-items:center;gap:6px;font-size:10.5px;font-weight:600;color:var(--ink2)}
@@ -111,6 +129,7 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
   var WD = ['вс','пн','вт','ср','чт','пт','сб'];
   var MON = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
   var MONN = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+  var MONV = ['январе','феврале','марте','апреле','мае','июне','июле','августе','сентябре','октябре','ноябре','декабре'];
   var WDFULL = ['воскресенье','понедельник','вторник','среда','четверг','пятница','суббота'];
 
   function d(iso) { var p = iso.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); }
@@ -132,16 +151,126 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
   function el(html) { var t = document.createElement('div'); t.innerHTML = html.trim(); return t.firstChild; }
 
   var D = null, TODAY = null, ROLE = null, ME = null, TAB = 0, OPEN = null, LOCAL = {};
+  // Внутри Телеграма работаем с сервером: он проверяет подпись и отдаёт только
+  // то, что этому человеку положено видеть. Без подписи — витрина из файла.
+  // Регистрируем обработчик, иначе Chrome на андроиде делает закладку,
+  // а не значок приложения. Он ничего не кэширует.
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js').catch(function () {});
+    });
+  }
+
+  var IDT = (TG && TG.initData) ? TG.initData : '';
+  var DEV = null;                     // токен устройства — для тех, у кого нет Телеграма
+  var DEVKEY = 'abonementy.device';
+  try {
+    var kk = location.search.match(/[?&]k=([A-Za-z0-9_\-]{20,})/);
+    if (kk) { DEV = kk[1]; localStorage.setItem(DEVKEY, DEV); }
+    else DEV = localStorage.getItem(DEVKEY) || null;
+  } catch (e) {}
+  var SERVER = !!(IDT || DEV);
+  var BUSY = false;
+  var STANDALONE = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+                   || window.navigator.standalone === true;
+  var IOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+
+  function api(path, body) {
+    return fetch(path, {
+      method: body ? 'POST' : 'GET',
+      cache: 'no-store',
+      headers: IDT ? { 'X-Init-Data': IDT, 'Content-Type': 'application/json' }
+                   : { 'X-Device': DEV || '', 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) throw { code: r.status, msg: j.detail || ('Сервер ответил ' + r.status) };
+        return j;
+      });
+    });
+  }
+
+  // Сервер называет статусы debt/ending, экран всюду ждёт bad/warn.
+  // Переводим в одном месте, чтобы сравнения по всему приложению совпадали.
+  var STATUS = { debt: 'bad', ending: 'warn', ok: 'ok', none: 'none', bad: 'bad', warn: 'warn' };
+  function applyServer(data) {
+    (data.students || []).forEach(function (s) {
+      if (s.state && s.state.status) s.state.status = STATUS[s.state.status] || 'ok';
+    });
+    D = data;
+    D.cancelled = D.cancelled || [];
+    D.guests = D.guests || [];
+    D.students = D.students || [];
+    TODAY = (D.meta && D.meta.today) || iso(new Date());
+    ROLE = D.role === 'teacher' ? 'teacher' : 'student';
+    IDENTIFIED = true;
+    ME = ROLE === 'student' ? D.students[0] : null;
+    var tgu = TG && TG.initDataUnsafe ? TG.initDataUnsafe.user : null;
+    if (ME && !ME.photo && tgu && tgu.photo_url) ME.photo = tgu.photo_url;
+    if (TAB > 2) TAB = 0;
+  }
+
+  function act(path, body, localFn) {
+    if (!SERVER) { if (localFn) localFn(); render(); return; }
+    if (BUSY) return;
+    BUSY = true;
+    api(path, body || {}).then(function (d) {
+      BUSY = false; applyServer(d); render();
+    }).catch(function (e) {
+      BUSY = false; say(e && e.msg ? e.msg : 'Не получилось'); render();
+    });
+  }
+
+  function byId(id) {
+    return D.students.filter(function (x) { return String(x.id) === String(id); })[0];
+  }
   var LS = 'abonementy.v1';
   try { LOCAL = JSON.parse(localStorage.getItem(LS) || '{}'); } catch (e) { LOCAL = {}; }
   function save() { try { localStorage.setItem(LS, JSON.stringify(LOCAL)); } catch (e) {} }
 
   /* ---------- расчёты ---------- */
   function group(s) { return D.groups.filter(function (g) { return g.id === s.groupId; })[0]; }
-  function weekdays(s) { return [D.sharedLesson.weekday, group(s).weekday]; }
+  /* getDay() считает с воскресенья, расписание — с понедельника, как в ISO */
+  function isowd(dt) { return dt.getDay() === 0 ? 7 : dt.getDay(); }
+  function slotOf(g, wd) {
+    return ((g && g.slots) || []).filter(function (s) { return s.weekday === wd; })[0] || null;
+  }
+  function slotAt(s, isoStr) { return slotOf(group(s), isowd(d(isoStr))); }
+  function dayLabel(g) {
+    return ((g && g.slots) || []).map(function (s) { return WDFULL[s.weekday % 7]; }).join(' и ');
+  }
+  function scheduleLabel(g) {
+    return ((g && g.slots) || []).map(function (s) {
+      return WDFULL[s.weekday % 7] + ' ' + s.time;
+    }).join(' · ');
+  }
+  function weekdays(s) {
+    return ((group(s) || {}).slots || []).map(function (x) { return x.weekday; });
+  }
+  function isOff(isoStr, groupId) {
+    return (D.cancelled || []).some(function (c) {
+      var day = typeof c === 'string' ? c : c.date;
+      var g = typeof c === 'string' ? null : c.groupId;
+      return day === isoStr && (!g || g === groupId);
+    });
+  }
   function isLessonDay(s, isoStr) {
-    if (D.cancelled.indexOf(isoStr) >= 0) return false;
-    return weekdays(s).indexOf(d(isoStr).getDay()) >= 0;
+    if (isOff(isoStr, s.groupId)) return false;
+    return !!slotAt(s, isoStr);
+  }
+  function anyLessonDay(isoStr) {
+    var wd = isowd(d(isoStr));
+    return D.groups.some(function (g) { return !!slotOf(g, wd); });
+  }
+  function stepLessonDay(fromIso, dir) {
+    var cur = d(fromIso);
+    for (var i = 0; i < 120; i++) {
+      cur = addDays(cur, dir);
+      var k = iso(cur);
+      if (dir > 0 && k > TODAY) return null;
+      if (anyLessonDay(k)) return k;
+    }
+    return null;
   }
   function lessonDates(s, fromIso, count) {
     var out = [], cur = d(fromIso), guard = 0;
@@ -161,12 +290,14 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
     return out;
   }
   function stats(s) {
+    if (s.stats) return s.stats;
     var all = allMarks(s), keys = Object.keys(all).sort(), att = 0, miss = 0, streak = 0;
     keys.forEach(function (k) { if (all[k] === 'attended') att++; else if (all[k] === 'missed') miss++; });
     for (var i = keys.length - 1; i >= 0; i--) { if (all[keys[i]] === 'attended') streak++; else break; }
     return { attended: att, missed: miss, streak: streak };
   }
   function monthlyOf(s) {
+    if (s.monthly) return s.monthly;
     var keys = Object.keys(allMarks(s)).sort(), TR = trackedFrom(s);
     if (!keys.length) return [];
     var cur = d(keys[0].slice(0, 7) + '-01'), endM = TODAY.slice(0, 7), out = [], guard = 0;
@@ -184,15 +315,18 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
   }
   function makeupsOf(s) {
     var a = (s.makeups || []).map(function (m) { return { date: m.date, forDate: m['for'] || null }; });
+    if (SERVER) return a.sort(function (u, v) { return u.date < v.date ? 1 : -1; });
     ((LOCAL.visits || {})[s.id] || []).forEach(function (dt) {
       if (!a.some(function (v) { return v.date === dt; })) a.push({ date: dt, forDate: null });
     });
     return a.sort(function (u, v) { return u.date < v.date ? 1 : -1; });
   }
-  function visitors(dateIso, roster) {
-    var ids = roster.map(function (s) { return s.id; });
+  function visitors(dateIso) {
+    /* Своих не вычёркиваем: во вторник ученица может прийти на своё занятие
+       в 18:00 и остаться на чужое в 19:00 — это два занятия, не одно. */
     return D.students.filter(function (s) {
-      return ids.indexOf(s.id) < 0 && ((LOCAL.visits || {})[s.id] || []).indexOf(dateIso) >= 0;
+      if (SERVER) return (s.makeups || []).some(function (m) { return m.date === dateIso; });
+      return ((LOCAL.visits || {})[s.id] || []).indexOf(dateIso) >= 0;
     });
   }
   function toggleVisit(s, dateIso) {
@@ -214,10 +348,12 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
     return ((tr[c] || 'X') + (tr[name.toLowerCase().charAt(1)] || 'X')) + '-' + r;
   }
   function markOf(s, isoStr) {
+    if (SERVER) return (s.marks || {})[isoStr];
     var ov = LOCAL[s.id] && LOCAL[s.id][isoStr];
     return ov !== undefined ? ov : s.marks[isoStr];
   }
   function state(s) {
+    if (s.state) return s.state;              // сервер уже посчитал
     var total = D.studio.abonementLessons;
     if (!s.abonement || !s.abonement.paidAt) {
       return { total: total, dates: [], held: 0, left: 0, debt: 0, last: null, payBy: null,
@@ -243,6 +379,7 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
     };
   }
   function trackedFrom(s) {
+    if (s.trackedFrom) return s.trackedFrom;
     var k = Object.keys(allMarks(s)).sort();
     return k.length ? k[0] : firstLesson(s, s.abonement && s.abonement.paidAt ? s.abonement.paidAt : TODAY);
   }
@@ -258,13 +395,25 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
     if (!out.length) return days + ' ' + plural(days, 'день', 'дня', 'дней');
     return out.join(' ') + (days > 0 ? ' и ' + days + ' ' + plural(days, 'день', 'дня', 'дней') : '');
   }
-  function todayLesson() {
-    var wd = d(TODAY).getDay();
-    if (D.cancelled.indexOf(TODAY) >= 0) return null;
-    if (wd === D.sharedLesson.weekday) return { shared: true, time: D.sharedLesson.time, title: D.sharedLesson.title, roster: D.students.slice() };
-    var g = D.groups.filter(function (x) { return x.weekday === wd; })[0];
-    if (!g) return null;
-    return { shared: false, time: g.time, title: g.name, group: g, roster: D.students.filter(function (s) { return s.groupId === g.id; }) };
+  var JDAY = null;                       // какой день открыт в журнале
+  function jday() { return JDAY || TODAY; }
+
+  function lessonOn(day) {
+    var wd = isowd(d(day)), off = isOff(day, null);
+    var gs = D.groups.filter(function (g) { return !!slotOf(g, wd); })
+      .sort(function (a, b) { return slotOf(a, wd).time < slotOf(b, wd).time ? -1 : 1; });
+    if (!gs.length) return null;
+    var ids = gs.map(function (g) { return g.id; });
+    return {
+      groups: gs,
+      wd: wd,
+      many: gs.length > 1,
+      group: gs[0],
+      off: off || gs.every(function (g) { return isOff(day, g.id); }),
+      time: gs.map(function (g) { return slotOf(g, wd).time; }).join(' и '),
+      title: gs.map(function (g) { return g.name; }).join(' и '),
+      roster: D.students.filter(function (s) { return ids.indexOf(s.groupId) >= 0; })
+    };
   }
 
   /* ---------- мелкие куски разметки ---------- */
@@ -296,13 +445,40 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
       '<div class="mid"><div class="big" style="font-size:23px">' + esc(big) + '</div>' +
       '<div style="font-size:10px;font-weight:600;color:var(--ink2)">' + esc(small) + '</div></div></div></div>';
   }
-  function pipsHtml(used, total) {
+  // Сколько полосок было в прошлый раз — чтобы новые загорались на глазах.
+  var SEENKEY = 'abonementy.seen';
+  function seenGet(id) {
+    try { return (JSON.parse(localStorage.getItem(SEENKEY) || '{}'))[id]; } catch (e) { return undefined; }
+  }
+  function seenSet(id, v) {
+    try {
+      var m = JSON.parse(localStorage.getItem(SEENKEY) || '{}');
+      m[id] = v; localStorage.setItem(SEENKEY, JSON.stringify(m));
+    } catch (e) {}
+  }
+  function pipsHtml(used, total, fromUsed) {
     var h = '';
-    for (var i = 0; i < total; i++) h += '<i' + (i < used ? ' class="on"' : '') + '></i>';
+    for (var i = 0; i < total; i++) {
+      var cls = i < used ? 'on' : '';
+      if (i < used && fromUsed !== undefined && i >= fromUsed) {
+        cls += ' fresh';
+        h += '<i class="' + cls + '" style="animation-delay:' + ((i - fromUsed) * 0.25) + 's"></i>';
+      } else {
+        h += '<i' + (cls ? ' class="' + cls + '"' : '') + '></i>';
+      }
+    }
     return '<div class="pips">' + h + '</div>';
   }
-  function avatar(name, size) {
+  function avatar(who, size) {
     size = size || 34;
+    var name = typeof who === 'string' ? who : ((who && who.name) || '');
+    var url = (who && typeof who === 'object') ? who.photo : null;
+    if (url) {
+      return '<img class="av" src="' + esc(url) + '" alt="" style="width:' + size + 'px;height:' + size +
+        'px;object-fit:cover" onerror="this.replaceWith(Object.assign(document.createElement(\'div\'),' +
+        '{className:\'av\',style:\'width:' + size + 'px;height:' + size + 'px;font-size:' +
+        Math.round(size * .4) + 'px\',textContent:\'' + esc(name.charAt(0).toUpperCase()) + '\'}))">';
+    }
     return '<div class="av" style="width:' + size + 'px;height:' + size + 'px;font-size:' + Math.round(size * .4) + 'px">' +
       esc(name.charAt(0).toUpperCase()) + '</div>';
   }
@@ -314,7 +490,7 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
     var isLessonToday = isLessonDay(s, TODAY);
     var t = d(TODAY);
 
-    v.push('<div class="row">' + avatar(s.name, 46) +
+    v.push('<div class="row">' + avatar(s, 46) +
       '<div class="col grow" style="gap:1px"><div class="h1">Привет, ' + esc(s.name) + '!</div>' +
       '<div class="sub">' + WDFULL[t.getDay()] + ', ' + fmt(TODAY) + '</div></div></div>');
 
@@ -335,6 +511,13 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
         '<div style="font-size:15px;font-weight:600;color:var(--ink2);line-height:1.4">Пока не оплачен. ' +
         money(D.studio.abonementPrice) + ' за ' + D.studio.abonementLessons + ' занятий. Оплату отметит преподаватель.</div></div>');
     }
+    // Полоска загорается, если с прошлого раза занятий стало больше: нажала
+    // «Я была» сама или Катя отметила её в журнале. В просмотре Кати не трогаем.
+    var peekMode = ROLE === 'teacher' && PREVIEW;
+    var usedNow = Math.min(st.held, st.total);
+    var prevUsed = peekMode ? undefined : seenGet(s.id);
+    var FRESH = (prevUsed !== undefined && usedNow > prevUsed) ? prevUsed : undefined;
+    if (!peekMode) seenSet(s.id, usedNow);
     var tag = st.status === 'bad'
       ? '<div class="chip" style="background:var(--badT);color:var(--badL)">закончился</div>'
       : st.status === 'warn'
@@ -343,31 +526,36 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
     var headline = st.debt > 0
       ? '<div class="row" style="align-items:baseline;gap:9px"><div class="big" style="font-size:36px;color:var(--badL)">−' + st.debt + '</div>' +
         '<div style="font-size:15px;font-weight:600">' + plural(st.debt, 'занятие', 'занятия', 'занятий') + ' в долг</div></div>'
-      : '<div class="row" style="align-items:baseline;gap:9px"><div class="big" style="font-size:36px;color:var(--raspM);text-shadow:0 0 22px rgba(245,21,107,.7)">' + st.left + '</div>' +
+      : '<div class="row" style="align-items:baseline;gap:9px"><div class="big' + (FRESH !== undefined ? ' bump' : '') + '" style="font-size:36px;color:var(--raspM);text-shadow:0 0 22px rgba(245,21,107,.7)">' + st.left + '</div>' +
         '<div style="font-size:15px;font-weight:600">' + plural(st.left, 'занятие', 'занятия', 'занятий') + ' ' + (st.left === 1 ? 'осталось' : 'осталось') + '</div></div>';
     var foot = st.debt > 0
       ? 'Абонемент кончился <b style="color:var(--ink)">' + fmt(st.last) + '</b> · пора оплатить'
       : 'Хватит до <b style="color:var(--ink)">' + fmt(st.last) + '</b> · оплата к ' + fmt(st.payBy);
     if (st.status !== 'none') v.push('<div class="card" style="display:flex;flex-direction:column;gap:12px">' +
       '<div class="row" style="justify-content:space-between"><div class="lbl">Абонемент №' + s.abonement.no + '</div>' + tag + '</div>' +
-      headline + pipsHtml(Math.min(st.held, st.total), st.total) +
+      headline + pipsHtml(Math.min(st.held, st.total), st.total, FRESH) +
       '<div class="row" style="gap:8px;border-top:1px solid var(--bord);padding-top:11px">' +
       '<svg class="ico" style="color:' + (st.status === 'ok' ? 'var(--vio)' : 'var(--amber)') + '">' + SVG.clock + '</svg>' +
       '<div style="font-size:12.5px;font-weight:500;color:var(--ink2);line-height:1.35">' + foot + '</div></div></div>');
 
     if (isLessonToday) {
       v.push('<div class="col" style="gap:7px">' +
-        '<button class="btn" id="mark"' + (marked === 'attended' ? ' disabled' : '') + '>' +
+        '<button class="btn" id="mark"' + (marked === 'attended' || peekMode ? ' disabled' : '') + '>' +
         '<svg>' + SVG.check + '</svg>' + (marked === 'attended' ? 'Отмечено' : 'Я была на занятии') + '</button>' +
         '<div class="muted" style="text-align:center">' +
-        (marked === 'attended' ? 'спасибо, отметка сохранена' : 'сегодня ' + (todayLesson() ? todayLesson().time : '') + ' · забудешь — отметит преподаватель') +
+        (peekMode ? 'так эту кнопку видит ученица' :
+         marked === 'attended' ? 'спасибо, отметка сохранена' : 'сегодня ' + ((slotAt(s, TODAY) || {}).time || '') + ' · забудешь — отметит преподаватель') +
         '</div></div>');
     }
 
     v.push('<div class="col" style="gap:9px"><div class="row" style="gap:12px">' +
       ringCard('Абонемент', st.status === 'none' ? 0 : st.left / st.total * 100, 'var(--rasp)', 'rgba(245,21,107,.75)', st.status === 'none' ? '—' : String(Math.max(st.left, 0)), 'осталось') +
-      ringCard('' + MONN[d(TODAY).getMonth()], st.monthPct, 'var(--vio)', 'rgba(176,108,255,.7)', st.monthPct + '%', st.monthAtt + ' из ' + st.monthHeld) +
+      ringCard('' + MONN[d(TODAY).getMonth()], st.monthHeld ? st.monthPct : 0, 'var(--vio)', 'rgba(176,108,255,.7)',
+        st.monthHeld ? st.monthPct + '%' : '—', st.monthHeld ? st.monthAtt + ' из ' + st.monthHeld : 'нет отметок') +
       '</div>' + makeupLine(s) + '</div>');
+
+    var todo = makeupTodo(s);
+    if (todo) v.push(todo);
 
     var nxt = st.dates.filter(function (k) { return k > TODAY; })[0] || st.payBy || lessonDates(s, iso(addDays(d(TODAY), 1)), 1)[0];
     var nd = d(nxt);
@@ -377,21 +565,85 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
       '<div class="big" style="font-size:16px;color:var(--vioL)">' + nd.getDate() + '</div>' +
       '<div style="font-size:9.5px;font-weight:700;color:var(--vioL);text-transform:uppercase">' + WD[nd.getDay()] + '</div></div>' +
       '<div class="col grow" style="gap:2px"><div style="font-size:13.5px;font-weight:700">' +
-      (nd.getDay() === D.sharedLesson.weekday ? esc(D.sharedLesson.title) : esc(group(s).name) + ' · ' + group(s).dayLabel) + '</div>' +
-      '<div class="muted">' + (nd.getDay() === D.sharedLesson.weekday ? D.sharedLesson.time : group(s).time) + ' · обе группы вместе'.replace('обе группы вместе', nd.getDay() === D.sharedLesson.weekday ? 'обе группы вместе' : 'твоя группа') + '</div></div>' +
+      esc(group(s).name) + ' · ' + WDFULL[nd.getDay()] + '</div>' +
+      '<div class="muted">' + ((slotOf(group(s), isowd(nd)) || {}).time || '') + ' · твоя группа</div></div>' +
       (nxt === st.last ? '<div class="chip" style="background:var(--amberT);color:var(--amber)">последнее</div>' : '') +
       '</div></div>');
 
     var node = el('<div class="col" style="gap:14px">' + v.join('') + '</div>');
     var btn = node.querySelector('#mark');
     if (btn) btn.addEventListener('click', function () {
-      if (!LOCAL[s.id]) LOCAL[s.id] = {};
-      LOCAL[s.id][TODAY] = 'attended';
-      save();
       if (TG && TG.HapticFeedback) { try { TG.HapticFeedback.notificationOccurred('success'); } catch (e) {} }
-      render();
+      act('/api/mark', {}, function () {
+        if (!LOCAL[s.id]) LOCAL[s.id] = {};
+        LOCAL[s.id][TODAY] = 'attended';
+        save();
+      });
     });
     return node;
+  }
+
+  function openMakeups(s) {
+    if (s.openMakeups) return s.openMakeups;
+    // отработать можно, пока не начался следующий абонемент
+    var stt = state(s) || {};
+    var dates = stt.dates || [];
+    if (!dates.length) return [];
+    var dl = dates[dates.length - 1];
+    if (stt.payBy) {
+      var before = iso(addDays(d(stt.payBy), -1));
+      if (before > dl) dl = before;
+    }
+    if (TODAY > dl) return [];
+    var marks = allMarks(s), done = makeupsOf(s).map(function (m) { return m.date; }), out = [];
+    dates.forEach(function (k) {
+      if (marks[k] !== 'missed') return;
+      if (done.some(function (v) { return v > k && v <= dl; })) return;
+      out.push({ missed: k, deadline: dl });
+    });
+    return out;
+  }
+
+  function makeupOptions(s) {
+    if (s.makeupOptions) return s.makeupOptions;
+    var todo = openMakeups(s);
+    if (!todo.length) return [];
+    var dl = todo[todo.length - 1].deadline, out = [], cur = d(TODAY);
+    while (iso(cur) <= dl && out.length < 12) {
+      var wd = isowd(cur), k = iso(cur), my = slotOf(group(s), wd);
+      D.groups.forEach(function (g) {
+        var sl = slotOf(g, wd);
+        if (!sl || g.id === s.groupId || isOff(k, g.id)) return;
+        if (my && my.time === sl.time) return;   // в это же время у неё своё занятие
+        out.push({ date: k, groupId: g.id, group: g.name, time: sl.time });
+      });
+      cur = addDays(cur, 1);
+    }
+    return out;
+  }
+
+  function makeupTodo(s, wide) {
+    var todo = openMakeups(s);
+    if (!todo.length) return '';
+    var one = todo[0];
+    var left = Math.round((d(one.deadline) - d(TODAY)) / 86400000);
+    return '<div style="background:var(--amberT2);border:1px solid rgba(255,178,60,.28);border-radius:18px;' +
+      'padding:13px 15px;display:flex;align-items:center;gap:12px">' +
+      '<svg class="ico" style="width:22px;height:22px;color:var(--amber);stroke-width:1.8;flex-shrink:0">' +
+      SVG.redo + '</svg>' +
+      '<div class="col grow" style="gap:2px;min-width:0">' +
+      '<div style="font-size:13px;font-weight:700;color:var(--amber)">Можно отработать' +
+      (todo.length > 1 ? ' · пропусков ' + todo.length : '') + '</div>' +
+      '<div style="font-size:11.5px;font-weight:500;color:var(--amber);line-height:1.35">' +
+      'пропуск ' + fmt(one.missed) + (one.carried ? ' (перенесён)' : '') + ' · до ' + fmt(one.deadline) +
+      (left <= 7 ? ', осталось ' + left + ' ' + plural(left, 'день', 'дня', 'дней') : '') +
+      (function () {
+        var opt = makeupOptions(s)[0];
+        if (!opt) return wide ? '' : '<br>подходящих дней уже не осталось';
+        var od = d(opt.date);
+        return '<br>ближайший день — ' + WDFULL[od.getDay()] + ', ' + fmt(opt.date) +
+               ', ' + esc(opt.group) + ' в ' + opt.time;
+      })() + '</div></div></div>';
   }
 
   function makeupLine(s) {
@@ -415,6 +667,7 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
     var days = new Date(y, mo + 1, 0).getDate();
     var lead = (first.getDay() + 6) % 7;
     var makeupDates = {}; makeupsOf(s).forEach(function (m) { makeupDates[m.date] = 1; });
+    var can = {}; makeupOptions(s).forEach(function (o) { can[o.date] = o; });
 
     var cells = '';
     for (var i = 0; i < lead; i++) cells += '<div class="d"></div>';
@@ -429,6 +682,7 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
         else if (k === TODAY) cls = 'today';
         else if (k > TODAY) cls = 'next';
       }
+      if (cls === '' && can[k]) cls = 'canmake';
       if (k === TODAY && cls === '') cls = 'today';
       cells += '<div class="d ' + cls + '"><span>' + day + '</span></div>';
     }
@@ -441,7 +695,8 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
       ['background:var(--mint)', 'отработка'],
       ['border:2px solid var(--ink)', 'сегодня'],
       ['background:var(--vioT);border:1.5px solid var(--vio)', 'впереди'],
-      ['background:var(--amberT);border:1.5px dashed var(--amber)', 'оплата']
+      ['background:var(--amberT);border:1.5px dashed var(--amber)', 'оплата'],
+      ['background:var(--mintT);border:1.5px dashed var(--mint)', 'можно прийти']
     ].map(function (x) { return '<div><span class="sw" style="' + x[0] + '"></span>' + x[1] + '</div>'; }).join('');
 
     var ahead = st.dates.filter(function (k) { return k > TODAY && k.slice(0, 7) === month; }).map(function (k) {
@@ -451,8 +706,7 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
         '<div class="big" style="font-size:15px;color:var(--vioL)">' + x.getDate() + '</div>' +
         '<div style="font-size:9.5px;font-weight:700;color:var(--vioL);text-transform:uppercase">' + WD[x.getDay()] + '</div></div>' +
         '<div class="col grow" style="gap:2px"><div style="font-size:13px;font-weight:700">' +
-        (x.getDay() === D.sharedLesson.weekday ? esc(D.sharedLesson.title) : esc(group(s).name)) + ' · ' +
-        (x.getDay() === D.sharedLesson.weekday ? D.sharedLesson.time : group(s).time) + '</div>' +
+        esc(group(s).name) + ' · ' + ((slotOf(group(s), isowd(x)) || {}).time || '') + '</div>' +
         '<div style="font-size:11px;font-weight:500;color:var(--ink2)">' +
         (k === st.last ? 'последнее по абонементу №' + s.abonement.no : 'по абонементу №' + s.abonement.no) + '</div></div></div>';
     }).join('');
@@ -473,7 +727,7 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
 
     var node = el('<div class="col" style="gap:14px">' +
       '<div class="row" style="justify-content:space-between"><div class="h1">Календарь</div>' +
-      '<div class="chip" style="background:var(--raspT);color:var(--raspL)">' + esc(group(s).name) + ' · вт + ' + WD[group(s).weekday] + '</div></div>' +
+      '<div class="chip" style="background:var(--raspT);color:var(--raspL)">' + esc(group(s).name) + ' · ' + esc(dayLabel(group(s))) + '</div></div>' +
       '<div class="card" style="padding:16px 14px;display:flex;flex-direction:column;gap:10px">' +
       '<div class="row" style="justify-content:space-between;padding:0 2px">' +
       '<button class="mnav" data-n="-1" style="width:44px;height:44px;border:0;border-radius:15px;background:var(--surf2);color:var(--ink2);cursor:pointer;display:flex;align-items:center;justify-content:center">' +
@@ -550,29 +804,85 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
 
   /* ---------- экраны преподавателя ---------- */
   var PICK = false;
-  function screenJournal() {
-    var L = todayLesson(), t = d(TODAY);
-    if (!L) return el('<div class="col" style="gap:14px"><div class="h1">Журнал</div>' +
-      '<div class="card"><div class="muted">' + WDFULL[t.getDay()] + ', ' + fmt(TODAY) + ' — занятий нет.</div></div></div>');
+  function journalNav(day) {
+    var prev = stepLessonDay(day, -1), next = stepLessonDay(day, 1);
+    var t = d(day);
+    return '<div class="row" style="justify-content:space-between;gap:8px">' +
+      '<button id="jprev" style="width:44px;height:44px;border:0;border-radius:15px;background:var(--surf2);' +
+      'color:var(--ink2);cursor:pointer;display:flex;align-items:center;justify-content:center' +
+      (prev ? '' : ';opacity:.3') + '"><svg class="ico" style="width:16px;height:16px;stroke-width:2.2">' +
+      SVG.back + '</svg></button>' +
+      '<div class="col" style="align-items:center;gap:1px;flex-grow:1;min-width:0">' +
+      '<div style="font-size:13.5px;font-weight:700">' + WDFULL[t.getDay()] + ', ' + fmt(day) + '</div>' +
+      '<div style="font-size:10.5px;font-weight:600;color:' +
+      (day === TODAY ? 'var(--raspL)' : 'var(--amber)') + '">' +
+      (day === TODAY ? 'сегодня' : 'правишь прошедшее занятие') + '</div></div>' +
+      (day === TODAY
+        ? '<button id="jnext" style="width:44px;height:44px;border:0;border-radius:15px;background:var(--surf2);' +
+          'color:var(--ink2);opacity:.3;cursor:default;display:flex;align-items:center;justify-content:center">' +
+          '<svg class="ico" style="width:16px;height:16px;stroke-width:2.2;transform:scaleX(-1)">' + SVG.back + '</svg></button>'
+        : '<button id="jtoday" style="height:44px;border:0;border-radius:15px;background:var(--raspT);' +
+          'color:var(--raspL);font-family:inherit;font-size:11.5px;font-weight:700;padding:0 12px;cursor:pointer">' +
+          'Сегодня</button>') +
+      '</div>';
+  }
 
-    var guests = D.guests.filter(function (g) { return g.date === TODAY; });
-    var vis = visitors(TODAY, L.roster);
+  function wireJournalNav(node, day) {
+    var prev = node.querySelector('#jprev'), next = node.querySelector('#jnext'),
+        tod = node.querySelector('#jtoday');
+    if (prev) prev.addEventListener('click', function () {
+      var k = stepLessonDay(day, -1);
+      if (k) { JDAY = k; render(); }
+    });
+    if (next) next.addEventListener('click', function () {
+      var k = stepLessonDay(day, 1);
+      if (k) { JDAY = k === TODAY ? null : k; render(); }
+    });
+    if (tod) tod.addEventListener('click', function () { JDAY = null; render(); });
+  }
+
+  function screenJournal() {
+    var DAY = jday();
+    var L = lessonOn(DAY), t = d(DAY);
+    if (!L) {
+      var node0 = el('<div class="col" style="gap:12px"><div class="h1">Журнал</div>' +
+        journalNav(DAY) +
+        '<div class="card"><div class="muted">' + WDFULL[t.getDay()] + ', ' + fmt(DAY) +
+        ' — занятий нет. Перелистай на день назад.</div></div></div>');
+      wireJournalNav(node0, DAY);
+      return node0;
+    }
+
+    var guests = D.guests.filter(function (g) { return g.date === DAY; });
+    var vis = visitors(DAY);
+    /* Отработать можно у любой чужой группы, которая занимается в этот день
+       в другое время — во вторник это соседнее занятие, 18:00 и 19:00. */
     var others = D.students.filter(function (s) {
-      return L.roster.indexOf(s) < 0 && vis.indexOf(s) < 0;
+      if (vis.indexOf(s) >= 0) return false;
+      var my = slotOf(group(s), L.wd);
+      return L.groups.some(function (g) {
+        return g.id !== s.groupId && !isOff(DAY, g.id) &&
+               (!my || my.time !== slotOf(g, L.wd).time);
+      });
     });
     var total = L.roster.length + guests.length + vis.length;
-    var done = L.roster.filter(function (s) { return markOf(s, TODAY) === 'attended'; }).length +
+    var done = L.roster.filter(function (s) { return markOf(s, DAY) === 'attended'; }).length +
                guests.filter(function (g) { return LOCAL['guest.' + g.id] === 'attended'; }).length + vis.length;
 
     function rowFor(s) {
-      var st = state(s), on = markOf(s, TODAY) === 'attended';
+      var st = state(s), on = markOf(s, DAY) === 'attended';
       var note = st.debt > 0
         ? '<span style="color:var(--badL)">долг ' + st.debt + ' ' + plural(st.debt, 'занятие', 'занятия', 'занятий') + '</span>'
         : '<span style="color:' + (st.status === 'warn' ? 'var(--amber)' : 'var(--mint)') + '">осталось ' + st.left + '</span>';
-      return '<div class="jrow" data-s="' + s.id + '">' + avatar(s.name, 32) +
+      return '<div class="jrow" data-s="' + s.id + '">' + avatar(s, 32) +
         '<div class="col grow" style="gap:1px"><div style="font-size:13.5px;font-weight:700">' + esc(s.name) + '</div>' +
         '<div style="font-size:10.5px;font-weight:700">' + note + '</div></div>' +
         '<div class="box' + (on ? ' on' : '') + '"><svg>' + SVG.check + '</svg></div></div>';
+    }
+    function hostGroup(s) {
+      var m = (s.makeups || []).filter(function (v) { return v.date === DAY; })[0];
+      var byId = m && D.groups.filter(function (g) { return g.id === m.groupId; })[0];
+      return byId || L.groups.filter(function (g) { return g.id !== s.groupId; })[0] || null;
     }
     function section(title, meta, rows) {
       return '<div class="col" style="gap:6px"><div class="row" style="justify-content:space-between;padding:0 2px">' +
@@ -581,36 +891,38 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
     }
 
     var body = '';
-    if (L.shared) {
-      D.groups.forEach(function (g) {
-        var rs = L.roster.filter(function (s) { return s.groupId === g.id; });
-        if (rs.length) body += section(g.name + ' · ' + g.dayLabel + ' ' + g.time, rs.length + ' из ' + g.capacity + ' мест', rs.map(rowFor).join(''));
-      });
-    } else {
-      body += section(L.group.name + ' · ' + L.group.dayLabel + ' ' + L.group.time, L.roster.length + ' из ' + L.group.capacity + ' мест', L.roster.map(rowFor).join(''));
-    }
+    L.groups.forEach(function (g) {
+      var rs = L.roster.filter(function (s) { return s.groupId === g.id; });
+      if (!rs.length) return;
+      body += section(g.name + ' · ' + WDFULL[t.getDay()] + ' ' + slotOf(g, L.wd).time,
+                      rs.length + ' из ' + g.capacity + ' мест', rs.map(rowFor).join(''));
+    });
     body += '<div class="col" style="gap:6px"><div class="row" style="justify-content:space-between;padding:0 2px">' +
       '<div class="sect" style="color:var(--mint)">Из другой группы</div>' +
       (others.length ? '<button id="addvisit" style="border:0;background:none;color:var(--mint);font-family:inherit;font-size:11px;font-weight:700;cursor:pointer">' +
         (PICK ? 'Отмена' : '+ Добавить') + '</button>' : '') + '</div>' +
       vis.map(function (s) {
         return '<div class="vrow" data-v="' + s.id + '" style="background:var(--mintT);border:1px solid rgba(45,212,160,.30);border-radius:16px;' +
-          'padding:0 13px;height:50px;display:flex;align-items:center;gap:11px;cursor:pointer">' + avatar(s.name, 32) +
+          'padding:0 13px;height:50px;display:flex;align-items:center;gap:11px;cursor:pointer">' + avatar(s, 32) +
           '<div class="col grow" style="gap:1px"><div style="font-size:13.5px;font-weight:700;color:var(--mintL)">' + esc(s.name) + '</div>' +
-          '<div style="font-size:10.5px;font-weight:600;color:var(--mint)">отработка · ' + esc(group(s).name.toLowerCase()) + '</div></div>' +
+          '<div style="font-size:10.5px;font-weight:600;color:var(--mint)">отработка' +
+          (function () {
+            var h = hostGroup(s), sl = h && slotOf(h, L.wd);
+            return h ? ' · ' + esc(h.name.toLowerCase()) + (sl ? ' в ' + sl.time : '') : '';
+          })() + '</div></div>' +
           '<div class="box on" style="background:var(--mint);border-color:var(--mint)"><svg>' + SVG.check + '</svg></div></div>';
       }).join('') +
       (PICK ? others.map(function (s) {
         return '<div class="prow" data-p="' + s.id + '" style="background:var(--surf);border:1px dashed var(--bord);border-radius:16px;' +
-          'padding:0 13px;height:46px;display:flex;align-items:center;gap:11px;cursor:pointer">' + avatar(s.name, 28) +
+          'padding:0 13px;height:46px;display:flex;align-items:center;gap:11px;cursor:pointer">' + avatar(s, 28) +
           '<div class="col grow" style="gap:1px"><div style="font-size:13px;font-weight:700">' + esc(s.name) + '</div>' +
-          '<div style="font-size:10.5px;font-weight:600;color:var(--ink2)">' + esc(group(s).name) + ' · ' + group(s).dayLabel + '</div></div>' +
+          '<div style="font-size:10.5px;font-weight:600;color:var(--ink2)">' + esc(group(s).name) + ' · ' + esc(dayLabel(group(s))) + '</div></div>' +
           '<svg class="ico" style="color:var(--mint);stroke-width:2.2"><path d="M12 5v14M5 12h14"/></svg></div>';
       }).join('') : '') +
       (!vis.length && !PICK
         ? '<div style="font-size:11.5px;font-weight:500;color:var(--ink2);padding:2px 2px 0">' +
           (others.length ? 'если кто-то придёт отрабатывать пропуск — добавь её сюда, занятие у неё не спишется'
-                         : 'сегодня общее занятие, все и так здесь') + '</div>'
+                         : 'сегодня отрабатывать некому — чужих групп в этот день нет') + '</div>'
         : '') + '</div>';
 
     if (guests.length) {
@@ -627,7 +939,12 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
     var node = el('<div class="col" style="gap:12px">' +
       '<div class="row" style="align-items:flex-start;justify-content:space-between;gap:10px">' +
       '<div class="col grow" style="gap:3px"><div class="h1">Журнал</div>' +
-      '<div class="sub">' + WD[t.getDay()] + ', ' + fmtShort(TODAY) + ' · ' + L.time + ' · ' + (L.shared ? 'общее' : esc(L.title)) + '</div></div></div>' +
+      '<div class="sub">' + L.time + ' · ' + esc(L.title) +
+      (L.off ? ' · <span style="color:var(--badL)">отменено</span>' : '') + '</div></div>' +
+      '<button id="scrap" style="border:1px solid var(--bord);background:var(--surf);border-radius:999px;height:44px;' +
+      'padding:0 14px;font-family:inherit;font-size:11.5px;font-weight:700;color:var(--badL);cursor:pointer;flex-shrink:0">' +
+      (L.off ? 'Вернуть' : 'Не было') + '</button></div>' +
+      journalNav(DAY) +
       '<div class="card" style="border-radius:18px;padding:13px 15px;display:flex;flex-direction:column;gap:9px">' +
       '<div class="row" style="align-items:baseline;justify-content:space-between">' +
       '<div style="font-size:13.5px;font-weight:700">Отмечено <span style="color:var(--raspL)">' + done + '</span> из ' + total + '</div>' +
@@ -636,31 +953,42 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
       body +
       '<button class="btn" style="border-radius:18px;height:52px">Сохранить занятие</button></div>');
 
+    wireJournalNav(node, DAY);
+    node.querySelector('#scrap').addEventListener('click', function () {
+      if (!SERVER) { say('Отмена занятия появится, когда подключим сервер.'); return; }
+      act('/api/teacher/cancel', { date: DAY, groupId: L.many ? null : L.group.id,
+                                   reason: 'отменено преподавателем', undo: !!L.off });
+    });
     var av = node.querySelector('#addvisit');
     if (av) av.addEventListener('click', function () { PICK = !PICK; render(); });
     node.querySelectorAll('.prow').forEach(function (r) {
       r.addEventListener('click', function () {
-        var s = D.students.filter(function (u) { return u.id === r.getAttribute('data-p'); })[0];
-        toggleVisit(s, TODAY); PICK = false; render();
+        var s = byId(r.getAttribute('data-p'));
+        PICK = false;
+        act('/api/teacher/visit', { studentId: s.id, date: DAY }, function () { toggleVisit(s, DAY); });
       });
     });
     node.querySelectorAll('.vrow').forEach(function (r) {
       r.addEventListener('click', function () {
-        var s = D.students.filter(function (u) { return u.id === r.getAttribute('data-v'); })[0];
-        toggleVisit(s, TODAY); render();
+        var s = byId(r.getAttribute('data-v'));
+        act('/api/teacher/visit', { studentId: s.id, date: DAY }, function () { toggleVisit(s, DAY); });
       });
     });
     node.querySelectorAll('.jrow').forEach(function (r) {
       r.addEventListener('click', function () {
         var sid = r.getAttribute('data-s'), gid = r.getAttribute('data-g');
         if (sid) {
-          var s = D.students.filter(function (x) { return x.id === sid; })[0];
-          if (!LOCAL[s.id]) LOCAL[s.id] = {};
-          LOCAL[s.id][TODAY] = markOf(s, TODAY) === 'attended' ? 'missed' : 'attended';
+          var s = byId(sid);
+          var next = markOf(s, DAY) === 'attended' ? 'missed' : 'attended';
+          act('/api/teacher/mark', { studentId: s.id, date: DAY, status: next }, function () {
+            if (!LOCAL[s.id]) LOCAL[s.id] = {};
+            LOCAL[s.id][DAY] = next;
+            save();
+          });
         } else if (gid) {
           LOCAL['guest.' + gid] = LOCAL['guest.' + gid] === 'attended' ? null : 'attended';
+          save(); render();
         }
-        save(); render();
       });
     });
     return node;
@@ -669,7 +997,7 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
   function screenSubs() {
     var rows = D.students.map(function (s) { return { s: s, st: state(s) }; });
     var by = { bad: [], warn: [], ok: [], none: [] };
-    rows.forEach(function (r) { by[r.st.status].push(r); });
+    rows.forEach(function (r) { (by[r.st.status] || by.ok).push(r); });
     var n = rows.length, seats = D.groups.reduce(function (a, g) { return a + g.capacity; }, 0);
     var month = TODAY.slice(0, 7);
     var got = 0; D.students.forEach(function (s) {
@@ -685,7 +1013,7 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
         : st.left === 1 && st.last === TODAY ? 'осталось 1 · сегодня последнее'
         : 'осталось ' + st.left + ' · до ' + fmt(st.last);
       var colour = st.status === 'bad' ? 'var(--badL)' : st.status === 'warn' ? 'var(--amber)' : st.status === 'none' ? 'var(--ink2)' : 'var(--mint)';
-      return '<div class="trow ' + (st.status === 'ok' ? '' : st.status) + '" data-s="' + s.id + '" style="cursor:pointer">' + avatar(s.name, 34) +
+      return '<div class="trow ' + (st.status === 'ok' ? '' : st.status) + '" data-s="' + s.id + '" style="cursor:pointer">' + avatar(s, 34) +
         '<div class="col grow" style="gap:2px"><div style="font-size:13.5px;font-weight:700">' + esc(s.name) + ' · ' + esc(g.name.toLowerCase()) + '</div>' +
         '<div style="font-size:11px;font-weight:600;color:' + colour + '">' + note + '</div></div>' +
         (st.status === 'ok' || st.status === 'none' ? '' : '<button class="pill ' + st.status + '">Напомнить</button>') + '</div>';
@@ -712,7 +1040,7 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
       sect('В порядке', 'var(--mint)', by.ok) +
       sect('Без абонемента', 'var(--ink2)', by.none) +
       '<div style="background:linear-gradient(135deg,#45092D 0%,#241040 100%);border-radius:20px;padding:15px 17px;display:flex;align-items:center;gap:14px">' +
-      '<div class="col grow" style="gap:3px"><div class="lbl" style="letter-spacing:.07em;font-size:10.5px;color:var(--raspL)">Получено в ' + MONN[d(TODAY).getMonth()].toLowerCase() + '</div>' +
+      '<div class="col grow" style="gap:3px"><div class="lbl" style="letter-spacing:.07em;font-size:10.5px;color:var(--raspL)">Получено в ' + MONV[d(TODAY).getMonth()] + '</div>' +
       '<div class="big" style="font-size:21px">' + money(got) + '</div></div>' +
       '<div style="width:1px;height:34px;background:#57143C"></div>' +
       '<div class="col" style="gap:3px"><div class="lbl" style="letter-spacing:.07em;font-size:10.5px;color:var(--raspL)">Ожидается</div>' +
@@ -722,7 +1050,7 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
       r.addEventListener('click', function (ev) {
         if (ev.target.closest('.pill')) {
           ev.stopPropagation();
-          var s = D.students.filter(function (x) { return x.id === r.getAttribute('data-s'); })[0];
+          var s = byId(r.getAttribute('data-s'));
           say('Напоминание уйдёт в Telegram:\n\n' + s.name + ', абонемент заканчивается — пора продлевать.\n' +
                 money(D.studio.abonementPrice) + ' за ' + D.studio.abonementLessons + ' занятий.');
           return;
@@ -741,17 +1069,17 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
   var ADDING = false;
   function screenStudents() {
     if (OPEN) {
-      var s = D.students.filter(function (x) { return x.id === OPEN; })[0];
+      var s = byId(OPEN);
       if (s) return screenStudentCard(s);
     }
     var list = D.groups.map(function (g) {
       var rs = D.students.filter(function (x) { return x.groupId === g.id; });
       return '<div class="col" style="gap:6px"><div class="row" style="justify-content:space-between;padding:0 2px">' +
-        '<div class="sect" style="color:var(--raspL)">' + esc(g.name) + ' · ' + g.dayLabel + ' ' + g.time + '</div>' +
+        '<div class="sect" style="color:var(--raspL)">' + esc(g.name) + ' · ' + esc(scheduleLabel(g)) + '</div>' +
         '<div style="font-size:10.5px;font-weight:600;color:' + (rs.length >= g.capacity ? 'var(--amber)' : 'var(--ink2)') + '">' + rs.length + ' из ' + g.capacity + ' мест</div></div>' +
         rs.map(function (s) {
           var st = state(s);
-          return '<div class="jrow" data-s="' + s.id + '">' + avatar(s.name, 32) +
+          return '<div class="jrow" data-s="' + s.id + '">' + avatar(s, 32) +
             '<div class="col grow" style="gap:1px"><div style="font-size:13.5px;font-weight:700">' + esc(s.name) + '</div>' +
             '<div style="font-size:10.5px;font-weight:600;color:var(--ink2)">в группе ' + sinceLabel(s, 'joined') + '</div></div>' +
             '<div style="font-size:11.5px;font-weight:700;color:' +
@@ -780,7 +1108,7 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
         ' style="flex:1 1 0;height:auto;padding:10px 8px;border-radius:14px;background:var(--surf2);border:1px solid var(--bord);' +
         'color:var(--ink2);font-family:inherit;cursor:' + (full ? 'not-allowed' : 'pointer') + ';opacity:' + (full ? '.45' : '1') + '">' +
         '<div style="font-size:12.5px;font-weight:700">' + esc(g.name) + '</div>' +
-        '<div style="font-size:10.5px;font-weight:600;margin-top:2px">' + g.dayLabel + ' · ' + sc.taken + '/' + sc.cap + (full ? ' · нет мест' : '') + '</div></button>';
+        '<div style="font-size:10.5px;font-weight:600;margin-top:2px">' + esc(dayLabel(g)) + ' · ' + sc.taken + '/' + sc.cap + (full ? ' · нет мест' : '') + '</div></button>';
     }).join('');
     return '<div class="card" id="addform" style="display:flex;flex-direction:column;gap:12px">' +
       '<div class="row" style="justify-content:space-between"><div class="lbl">Новая ученица</div>' +
@@ -817,6 +1145,18 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
       if (!chosen) { say('Выбери группу.'); return; }
       var sc = seats(chosen);
       if (sc.taken >= sc.cap) { say('В этой группе нет свободных мест.'); return; }
+      if (SERVER) {
+        ADDING = false;
+        if (BUSY) return;
+        BUSY = true;
+        api('/api/teacher/student', { name: nm, groupId: chosen, paidAt: pd || null })
+          .then(function (d) {
+            BUSY = false; applyServer(d); render();
+            say(nm + ' в группе.\n\nКод для привязки: ' + d.created.code +
+                '\n\nОтдай его ей — она введёт код в боте, и приложение свяжет её Telegram с этим профилем.');
+          }).catch(function (e) { BUSY = false; say(e && e.msg ? e.msg : 'Не получилось'); render(); });
+        return;
+      }
       var code = newCode(nm);
       var rec = {
         id: 'n' + Date.now(), name: nm, groupId: chosen, telegramId: null, code: code,
@@ -839,7 +1179,8 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
     Object.keys(s.marks).concat(Object.keys(LOCAL[s.id] || {})).filter(function (v, i, a) { return a.indexOf(v) === i; })
       .sort().reverse().slice(0, 3).forEach(function (k) {
         var mk = markOf(s, k);
-        hist.push({ date: k, kind: mk === 'attended' ? 'att' : 'miss' });
+        hist.push({ date: k, kind: mk === 'attended' ? 'att' : 'miss',
+                    by: ((s.markedBy || {})[k] || {}).by });
       });
     makeupsOf(s).forEach(function (m) { hist.push({ date: m.date, kind: 'makeup', forDate: m.forDate }); });
     if (s.payments[0]) hist.push({ date: s.payments[0].date, kind: 'pay', amount: s.payments[0].amount, no: s.payments[0].no });
@@ -850,7 +1191,10 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
       var dot = h.kind === 'att' ? 'var(--rasp)' : h.kind === 'miss' ? 'var(--bad)' : h.kind === 'makeup' ? 'var(--mint)' : 'var(--vio)';
       var title = h.kind === 'att' ? 'Была на занятии' : h.kind === 'miss' ? 'Пропуск'
         : h.kind === 'makeup' ? 'Отработка' : 'Оплата ' + money(h.amount);
-      var sub = h.kind === 'att' ? 'отметка сохранена' : h.kind === 'miss' ? 'занятие списано'
+      var sub = h.kind === 'att'
+        ? (h.by === 'self' ? 'отметилась сама' : 'отметила ты')
+        : h.kind === 'miss'
+        ? (h.by === 'auto' ? 'никто не отметил — поставлено само' : 'занятие списано')
         : h.kind === 'makeup' ? (h.forDate ? 'за ' + fmt(h.forDate) : 'приходила в другую группу') : 'абонемент №' + h.no;
       return '<div class="card" style="border-radius:16px;padding:10px 13px;display:flex;align-items:center;gap:11px">' +
         '<span style="width:8px;height:8px;border-radius:50%;background:' + dot + ';flex-shrink:0"></span>' +
@@ -867,7 +1211,7 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
     var node = el('<div class="col" style="gap:13px">' +
       '<button class="ghost" id="back" style="align-self:flex-start;height:44px;display:flex;align-items:center;gap:8px;padding:0 12px">' +
       '<svg class="ico" style="width:19px;height:19px;stroke-width:2.2">' + SVG.back + '</svg>Ученицы</button>' +
-      '<div class="row" style="gap:13px">' + avatar(s.name, 56) +
+      '<div class="row" style="gap:13px">' + avatar(s, 56) +
       '<div class="col grow" style="gap:3px"><div class="h1">' + esc(s.name) + '</div>' +
       '<div class="muted">' + esc(g.name) + ' · в группе с ' + fmt(s.joined || s.since) + ' ' + d(s.joined || s.since).getFullYear() +
       (s.since !== (s.joined || s.since) ? ' · танцует ' + sinceLabel(s) : '') + '</div></div></div>' +
@@ -880,13 +1224,46 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
       (st.status === 'none' ? 'абонемент не оплачен' : st.debt ? 'в долг · кончился ' + fmt(st.last)
         : plural(st.left, 'занятие', 'занятия', 'занятий') + ' · до ' + fmt(st.last)) + '</div></div>' +
       pipsHtml(Math.min(st.held, st.total), st.total) + '</div>' +
-      (s.telegramId ? '' : '<div class="card" style="border-radius:16px;padding:12px 14px;display:flex;align-items:center;gap:11px">' +
-        '<div class="col grow" style="gap:2px"><div style="font-size:12.5px;font-weight:700">Ещё не в приложении</div>' +
-        '<div style="font-size:10.5px;font-weight:500;color:var(--ink2)">отдай код — она введёт его в боте</div></div>' +
-        '<div class="chip" style="background:var(--raspT);color:var(--raspL);font-family:var(--disp);letter-spacing:.04em">' + esc(s.code || '—') + '</div></div>') +
+      makeupTodo(s, true) +
+      (function () {
+        var inApp = s.bound || s.telegramId, dev = s.devices || 0;
+        var where = [];
+        if (inApp) where.push('телеграм');
+        if (dev) where.push(dev + ' ' + plural(dev, 'устройство', 'устройства', 'устройств'));
+        return '<div class="card" style="border-radius:16px;padding:13px 14px;display:flex;flex-direction:column;gap:9px">' +
+          '<div class="row" style="justify-content:space-between;gap:10px">' +
+          '<div style="font-size:12.5px;font-weight:700">' +
+          (where.length ? 'Входит: ' + where.join(' + ') : 'Ещё не в приложении') + '</div>' +
+          '<div class="chip" style="background:var(--raspT);color:var(--raspL);font-family:var(--disp);letter-spacing:.04em">' +
+          esc(s.code || '—') + '</div></div>' +
+          (where.length
+            ? '<div class="row" style="justify-content:space-between;gap:10px;border-top:1px solid var(--bord);padding-top:9px">' +
+              '<div style="font-size:11px;font-weight:500;color:var(--ink2);line-height:1.45;flex-grow:1">' +
+              'По коду можно войти и из браузера. Если он ушёл не тому — выдай новый.</div>' +
+              '<button class="ghost" id="recode" style="height:40px;padding:0 12px;font-size:11.5px;flex-shrink:0">' +
+              'Новый код</button></div>'
+            : '<div style="font-size:11px;font-weight:500;color:var(--ink2);line-height:1.5;' +
+              'border-top:1px solid var(--bord);padding-top:9px">' +
+              '<b style="color:var(--ink)">Есть Телеграм:</b> пусть напишет боту и введёт код.<br>' +
+              '<b style="color:var(--ink)">Нет Телеграма:</b> отправь ей ссылку ' +
+              '<span style="color:var(--raspL)">' + esc(location.host) + '</span> — там то же поле для кода, ' +
+              'а потом значок на экран телефона.</div>') + '</div>';
+      })() +
       '<div class="row" style="gap:9px">' +
       '<button class="btn" id="pay" style="flex:1 1 0;height:50px;border-radius:17px;font-size:14.5px;box-shadow:none">Отметить оплату</button>' +
       '<button class="ghost" id="shift">Сдвинуть</button></div>' +
+      ((s.carryable && s.carryable.length)
+        ? '<div style="background:var(--amberT2);border:1px solid rgba(255,178,60,.28);border-radius:18px;' +
+          'padding:13px 15px;display:flex;align-items:center;gap:12px">' +
+          '<div class="col grow" style="gap:2px;min-width:0">' +
+          '<div style="font-size:13px;font-weight:700;color:var(--amber)">Пропуски с прошлого абонемента</div>' +
+          '<div style="font-size:11.5px;font-weight:500;color:var(--amber);line-height:1.35">' +
+          s.carryable.map(fmt).join(', ') + ' · занятий не прибавится, но сможет прийти отработать</div></div>' +
+          '<button class="pill warn" id="carry" style="flex-shrink:0">Перенести</button></div>'
+        : '') +
+      '<button class="ghost" id="peek" style="height:46px;display:flex;align-items:center;justify-content:center;gap:8px">' +
+      '<svg class="ico" style="width:17px;height:17px;stroke-width:1.9"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"/>' +
+      '<circle cx="12" cy="12" r="2.6"/></svg>Посмотреть её экран</button>' +
       '<div class="row" style="gap:9px">' +
       tile(st.monthPct + '%', MONN[d(TODAY).getMonth()].toLowerCase(), '') +
       tile(st.allPct + '%', 'всё время', '') +
@@ -896,13 +1273,53 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
       '<div style="font-size:11.5px;font-weight:600;color:var(--ink2)">кто и когда отметил</div></div>' + rows + '</div></div>');
 
     node.querySelector('#back').addEventListener('click', function () { OPEN = null; render(); });
+    var rc = node.querySelector('#recode');
+    if (rc) rc.addEventListener('click', function () {
+      if (rc.dataset.sure !== '1') {
+        rc.dataset.sure = '1'; rc.textContent = 'Точно?';
+        rc.style.color = 'var(--badL)'; rc.style.borderColor = 'rgba(255,85,69,.4)';
+        setTimeout(function () {
+          if (!rc.isConnected) return;
+          rc.dataset.sure = ''; rc.textContent = 'Новый код';
+          rc.style.color = ''; rc.style.borderColor = '';
+        }, 4000);
+        return;
+      }
+      if (BUSY) return;
+      BUSY = true;
+      api('/api/teacher/recode', { studentId: s.id }).then(function (d) {
+        BUSY = false; applyServer(d); render();
+        say('Новый код для ' + s.name + ': ' + d.created.code +
+            '\n\nСтарый больше не работает, все входы сброшены. Отдай ей новый.');
+      }).catch(function (e) { BUSY = false; say(e && e.msg ? e.msg : 'Не получилось'); render(); });
+    });
+    var cr = node.querySelector('#carry');
+    if (cr) cr.addEventListener('click', function () {
+      if (BUSY) return;
+      BUSY = true;
+      api('/api/teacher/carry', { studentId: s.id }).then(function (d) {
+        BUSY = false; applyServer(d); render();
+        say('Перенесла ' + d.carried.length + ' ' +
+            plural(d.carried.length, 'пропуск', 'пропуска', 'пропусков') +
+            ' на текущий абонемент.\n\nЗанятий не прибавилось — она может прийти отработать их в другую группу.');
+      }).catch(function (e) { BUSY = false; say(e && e.msg ? e.msg : 'Не получилось'); render(); });
+    });
+    node.querySelector('#peek').addEventListener('click', function () {
+      PREVIEW = s.id; TAB = 0; render();
+    });
     node.querySelector('#pay').addEventListener('click', function () {
-      say('Оплата ' + money(D.studio.abonementPrice) + ' за ' + st.total + ' занятий.\n' +
-            'Новый абонемент №' + (s.abonement.no + 1) + ' начнётся ' + fmt(st.payBy) + '.\n\n' +
-            '(в прототипе не сохраняется)');
+      if (!SERVER) {
+        say('Оплата ' + money(D.studio.abonementPrice) + ' за ' + st.total + ' занятий.\n\n(в демо не сохраняется)');
+        return;
+      }
+      act('/api/teacher/payment', { studentId: s.id, date: TODAY });
     });
     node.querySelector('#shift').addEventListener('click', function () {
-      say('Сдвиг абонемента на N занятий вперёд — например, если ты отменила занятие или ученица в отпуске.\n\n(в прототипе не сохраняется)');
+      if (!SERVER) {
+        say('Сдвиг абонемента на одно занятие вперёд.\n\n(в демо не сохраняется)');
+        return;
+      }
+      act('/api/teacher/shift', { studentId: s.id, by: 1 });
     });
     return node;
   }
@@ -912,17 +1329,34 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
     student: [['Главная', SVG.home], ['Календарь', SVG.cal], ['Прогресс', SVG.chart]],
     teacher: [['Журнал', SVG.checksq], ['Абонементы', SVG.wallet], ['Ученицы', SVG.users]]
   };
+  var PREVIEW = null;                    // смотрю глазами конкретной ученицы
+
+  function previewBar(s) {
+    var w = el('<div class="roles" style="gap:8px;padding:6px 8px 6px 14px">' +
+      '<span style="font-size:11px;font-weight:700;color:var(--amber);white-space:nowrap">' +
+      'Как видит ' + esc(s.name) + '</span>' +
+      '<button id="unpreview" style="border:0;background:var(--amberT);color:var(--amber);' +
+      'font-family:inherit;font-size:11px;font-weight:700;padding:6px 12px;border-radius:999px;' +
+      'cursor:pointer">Выйти</button></div>');
+    w.querySelector('#unpreview').addEventListener('click', function () {
+      PREVIEW = null; TAB = 2; render();
+    });
+    return w;
+  }
+
   function render() {
     var app = document.getElementById('app');
-    app.className = IDENTIFIED ? '' : 'demo';
+    var peek = (ROLE === 'teacher' && PREVIEW) ? byId(PREVIEW) : null;
+    app.className = (IDENTIFIED && !peek) ? '' : 'demo';
     app.innerHTML = '<div id="view"></div>';
     var view = app.querySelector('#view'), body;
-    if (ROLE === 'teacher') body = [screenJournal, screenSubs, screenStudents][TAB]();
+    if (peek) body = [screenHome, screenCalendar, screenProgress][TAB](peek);
+    else if (ROLE === 'teacher') body = [screenJournal, screenSubs, screenStudents][TAB]();
     else body = [screenHome, screenCalendar, screenProgress][TAB](ME);
     view.appendChild(body);
 
     var nav = document.createElement('nav');
-    TABS[ROLE].forEach(function (t, i) {
+    (peek ? TABS.student : TABS[ROLE]).forEach(function (t, i) {
       var b = document.createElement('button');
       b.className = i === TAB ? 'on' : '';
       b.innerHTML = '<svg viewBox="0 0 24 24">' + t[1] + '</svg>' + t[0];
@@ -930,7 +1364,8 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
       nav.appendChild(b);
     });
     app.appendChild(nav);
-    if (!IDENTIFIED) app.appendChild(roleSwitch());
+    if (peek) app.appendChild(previewBar(peek));
+    else if (!IDENTIFIED) app.appendChild(roleSwitch());
     view.scrollTop = 0;
   }
   var IDENTIFIED = false;
@@ -975,12 +1410,124 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
     render();
   }
 
-  fetch('data.json?v=' + Date.now(), { cache: 'no-store' })
-    .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-    .then(boot)
-    .catch(function (e) {
-      fail('Файл data.json не открылся (' + e.message + '). Проверь, что он лежит рядом с index.html и страница открыта по http, а не как локальный файл.');
+  function codeScreen(info) {
+    var app = document.getElementById('app');
+    app.className = '';
+    app.innerHTML =
+      '<div id="view" style="justify-content:center;gap:18px">' +
+      '<div class="hero" style="gap:10px">' +
+      '<div class="lbl" style="color:var(--raspL)">Абонементы группы</div>' +
+      '<div style="font-family:var(--disp);font-size:22px;font-weight:700;line-height:1.15;color:var(--ink)">' +
+      'Привет' + (info && info.name ? ', ' + esc(info.name) : '') + '!</div>' +
+      '<div style="font-size:13px;font-weight:500;color:var(--raspL);line-height:1.4">' +
+      'Введи код, который дала Катя — и приложение узнает тебя.</div></div>' +
+      '<input id="code" placeholder="AB-1C2D" autocapitalize="characters" autocomplete="off" ' +
+      'style="height:56px;border-radius:18px;background:var(--surf);border:1px solid var(--bord);' +
+      'color:var(--ink);font-family:var(--disp);font-size:20px;font-weight:700;letter-spacing:.12em;' +
+      'text-align:center;outline:none">' +
+      '<button class="btn" id="go">Войти</button>' +
+      '<div id="err" class="muted" style="text-align:center;min-height:18px"></div>' +
+      '<div class="muted" style="text-align:center;line-height:1.5">Код нужен один раз. ' +
+      (IDT ? 'Дальше приложение будет узнавать тебя само.'
+           : 'Потом добавим значок на экран телефона, и открываться будет в одно касание.') +
+      '</div></div>';
+    var input = app.querySelector('#code'), err = app.querySelector('#err');
+    function go() {
+      var v = (input.value || '').trim();
+      if (!v) { err.textContent = 'Впиши код'; return; }
+      err.textContent = 'Проверяю…';
+      api('/api/bind', { code: v, label: navigator.userAgent.slice(0, 60) }).then(function (r) {
+        if (r && r.device) {
+          DEV = r.device;
+          try { localStorage.setItem(DEVKEY, DEV); } catch (e2) {}
+          // адрес с ключом — чтобы ярлык на экране открывался сразу входом
+          try { history.replaceState(null, '', 'index.html?k=' + encodeURIComponent(DEV)); } catch (e3) {}
+        }
+        loadFromServer(true);
+      }).catch(function (e) {
+        err.textContent = (e && e.msg ? e.msg : 'Не получилось') + '. Спроси код у Кати.';
+      });
+    }
+    app.querySelector('#go').addEventListener('click', go);
+    input.addEventListener('keydown', function (e) { if (e.key === 'Enter') go(); });
+    input.focus();
+  }
+
+  function installScreen(name) {
+    var app = document.getElementById('app');
+    app.className = '';
+    var steps = IOS
+      ? '<b>1.</b> Нажми кнопку «Поделиться» внизу экрана — квадрат со стрелкой вверх.<br>' +
+        '<b>2.</b> Пролистай список и выбери <b>«На экран „Домой“»</b>.<br>' +
+        '<b>3.</b> Нажми «Добавить».'
+      : '<b>1.</b> Нажми три точки в правом верхнем углу браузера.<br>' +
+        '<b>2.</b> Выбери <b>«Добавить на главный экран»</b>.<br>' +
+        '<b>3.</b> Подтверди.';
+    app.innerHTML =
+      '<div id="view" style="justify-content:center;gap:16px">' +
+      '<div class="hero" style="gap:8px">' +
+      '<div class="lbl" style="color:var(--raspL)">Готово</div>' +
+      '<div style="font-family:var(--disp);font-size:22px;font-weight:700;line-height:1.15;color:var(--ink)">' +
+      'Привет, ' + esc(name) + '!</div></div>' +
+      '<div class="card" style="display:flex;flex-direction:column;gap:10px">' +
+      '<div style="font-size:14px;font-weight:700">Добавь на экран телефона</div>' +
+      '<div style="font-size:12.5px;font-weight:500;color:var(--ink2);line-height:1.55">' + steps + '</div>' +
+      '<div style="font-size:11.5px;font-weight:500;color:var(--ink2);line-height:1.45;' +
+      'border-top:1px solid var(--bord);padding-top:10px">Появится значок, как у обычного приложения. ' +
+      'Открывать через браузер и вводить код больше не придётся.</div></div>' +
+      '<button class="btn" id="ok">Понятно</button></div>';
+    app.querySelector('#ok').addEventListener('click', function () {
+      try { localStorage.setItem('abonementy.installed', '1'); } catch (e) {}
+      api('/api/data').then(function (d) { applyServer(d); render(); })
+        .catch(function (e) { fail(e && e.msg ? e.msg : 'Сервер не отвечает'); });
     });
+  }
+
+  function loadFromServer(afterBind) {
+    api('/api/data').then(function (d) {
+      if (d.role === 'unknown') { codeScreen(d); return; }
+      applyServer(d);
+      if (afterBind && !IDT && !STANDALONE) { installScreen(d.students[0] ? d.students[0].name : ''); return; }
+      render();
+    }).catch(function (e) {
+      if (e && e.code === 401 && !IDT) {
+        try { localStorage.removeItem(DEVKEY); } catch (x) {}
+        DEV = null; codeScreen({});
+        return;
+      }
+      fail(e && e.msg ? e.msg : 'Сервер не отвечает. Попробуй позже.');
+    });
+  }
+
+  // Вернулись в приложение — подтягиваем свежее. Если Катя отметила с телефона,
+  // на другом устройстве это видно сразу, без перезагрузки.
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState !== 'visible') return;
+    if (!SERVER || !D || BUSY) return;
+    api('/api/data').then(function (d) {
+      if (d.role === 'unknown') return;
+      applyServer(d);
+      render();
+    }).catch(function () {});
+  });
+
+  if (SERVER) {
+    loadFromServer(false);
+  } else {
+    // может быть, это наш сервер, просто человек ещё не входил
+    fetch('api/health', { cache: 'no-store' }).then(function (r) {
+      if (!r.ok) throw new Error('нет');
+      SERVER = true;
+      codeScreen({});
+    }).catch(function () {
+      fetch('data.json?v=' + Date.now(), { cache: 'no-store' })
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(boot)
+        .catch(function () {
+          fail('Открой приложение через Телеграм — кнопкой меню в чате с ботом.');
+        });
+    });
+  }
 })();
 </script>
 </body>

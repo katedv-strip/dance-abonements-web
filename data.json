@@ -13,27 +13,38 @@
     "telegramId": 0,
     "name": "Преподаватель"
   },
-  "sharedLesson": {
-    "weekday": 2,
-    "time": "19:00",
-    "title": "Общее занятие"
-  },
   "groups": [
     {
-      "id": "g1",
+      "id": "g2",
       "name": "Группа 1",
-      "weekday": 5,
-      "dayLabel": "пятница",
-      "time": "19:00",
-      "capacity": 5
+      "pos": 1,
+      "capacity": 5,
+      "slots": [
+        {
+          "weekday": 2,
+          "time": "18:00"
+        },
+        {
+          "weekday": 6,
+          "time": "10:30"
+        }
+      ]
     },
     {
-      "id": "g2",
+      "id": "g1",
       "name": "Группа 2",
-      "weekday": 6,
-      "dayLabel": "суббота",
-      "time": "09:00",
-      "capacity": 5
+      "pos": 2,
+      "capacity": 5,
+      "slots": [
+        {
+          "weekday": 2,
+          "time": "19:00"
+        },
+        {
+          "weekday": 5,
+          "time": "19:00"
+        }
+      ]
     }
   ],
   "cancelled": [],
