@@ -236,20 +236,28 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
   function group(s) { return D.groups.filter(function (g) { return g.id === s.groupId; })[0]; }
   /* getDay() считает с воскресенья, расписание — с понедельника, как в ISO */
   function isowd(dt) { return dt.getDay() === 0 ? 7 : dt.getDay(); }
-  function slotOf(g, wd) {
-    return ((g && g.slots) || []).filter(function (s) { return s.weekday === wd; })[0] || null;
+  /* Расписание меняется, поэтому у слота есть срок: ищем тот, что действовал
+     в этот день, иначе сентябрь пересчитался бы по октябрьским дням. */
+  function slotsOn(g, isoStr) {
+    return ((g && g.slots) || []).filter(function (s) {
+      return (!s.from || s.from <= isoStr) && (!s.to || s.to >= isoStr);
+    });
   }
-  function slotAt(s, isoStr) { return slotOf(group(s), isowd(d(isoStr))); }
+  function slotOf(g, isoStr) {
+    var wd = isowd(d(isoStr));
+    return slotsOn(g, isoStr).filter(function (s) { return s.weekday === wd; })[0] || null;
+  }
+  function slotAt(s, isoStr) { return slotOf(group(s), isoStr); }
   function dayLabel(g) {
-    return ((g && g.slots) || []).map(function (s) { return WDFULL[s.weekday % 7]; }).join(' и ');
+    return slotsOn(g, TODAY).map(function (s) { return WDFULL[s.weekday % 7]; }).join(' и ');
   }
   function scheduleLabel(g) {
-    return ((g && g.slots) || []).map(function (s) {
+    return slotsOn(g, TODAY).map(function (s) {
       return WDFULL[s.weekday % 7] + ' ' + s.time;
     }).join(' · ');
   }
   function weekdays(s) {
-    return ((group(s) || {}).slots || []).map(function (x) { return x.weekday; });
+    return slotsOn(group(s), TODAY).map(function (x) { return x.weekday; });
   }
   function isOff(isoStr, groupId) {
     return (D.cancelled || []).some(function (c) {
@@ -263,8 +271,7 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
     return !!slotAt(s, isoStr);
   }
   function anyLessonDay(isoStr) {
-    var wd = isowd(d(isoStr));
-    return D.groups.some(function (g) { return !!slotOf(g, wd); });
+    return D.groups.some(function (g) { return !!slotOf(g, isoStr); });
   }
   function stepLessonDay(fromIso, dir) {
     var cur = d(fromIso);
@@ -403,19 +410,25 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
   function jday() { return JDAY || TODAY; }
 
   function lessonOn(day) {
-    var wd = isowd(d(day)), off = isOff(day, null);
-    var gs = D.groups.filter(function (g) { return !!slotOf(g, wd); })
-      .sort(function (a, b) { return slotOf(a, wd).time < slotOf(b, wd).time ? -1 : 1; });
+    var off = isOff(day, null);
+    var gs = D.groups.filter(function (g) { return !!slotOf(g, day); })
+      .sort(function (a, b) { return slotOf(a, day).time < slotOf(b, day).time ? -1 : 1; });
     if (!gs.length) return null;
     var ids = gs.map(function (g) { return g.id; });
+    var times = [];
+    gs.forEach(function (g) {
+      var t = slotOf(g, day).time;
+      if (times.indexOf(t) < 0) times.push(t);
+    });
+    var together = times.length === 1 && gs.length > 1;   // одно время — одно занятие
     return {
       groups: gs,
-      wd: wd,
       many: gs.length > 1,
+      together: together,
       group: gs[0],
       off: off || gs.every(function (g) { return isOff(day, g.id); }),
-      time: gs.map(function (g) { return slotOf(g, wd).time; }).join(' и '),
-      title: gs.map(function (g) { return g.name; }).join(' и '),
+      time: times.join(' и '),
+      title: together ? 'все вместе' : gs.map(function (g) { return g.name; }).join(' и '),
       roster: D.students.filter(function (s) { return ids.indexOf(s.groupId) >= 0; })
     };
   }
@@ -570,7 +583,7 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
       '<div style="font-size:9.5px;font-weight:700;color:var(--vioL);text-transform:uppercase">' + WD[nd.getDay()] + '</div></div>' +
       '<div class="col grow" style="gap:2px"><div style="font-size:13.5px;font-weight:700">' +
       esc(group(s).name) + ' · ' + WDFULL[nd.getDay()] + '</div>' +
-      '<div class="muted">' + ((slotOf(group(s), isowd(nd)) || {}).time || '') + ' · твоя группа</div></div>' +
+      '<div class="muted">' + ((slotOf(group(s), nxt) || {}).time || '') + ' · твоя группа</div></div>' +
       (nxt === st.last ? '<div class="chip" style="background:var(--amberT);color:var(--amber)">последнее</div>' : '') +
       '</div></div>');
 
@@ -614,9 +627,9 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
     if (!todo.length) return [];
     var dl = todo[todo.length - 1].deadline, out = [], cur = d(TODAY);
     while (iso(cur) <= dl && out.length < 12) {
-      var wd = isowd(cur), k = iso(cur), my = slotOf(group(s), wd);
+      var k = iso(cur), my = slotOf(group(s), k);
       D.groups.forEach(function (g) {
-        var sl = slotOf(g, wd);
+        var sl = slotOf(g, k);
         if (!sl || g.id === s.groupId || isOff(k, g.id)) return;
         if (my && my.time === sl.time) return;   // в это же время у неё своё занятие
         out.push({ date: k, groupId: g.id, group: g.name, time: sl.time });
@@ -720,7 +733,7 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
         '<div class="big" style="font-size:15px;color:var(--vioL)">' + x.getDate() + '</div>' +
         '<div style="font-size:9.5px;font-weight:700;color:var(--vioL);text-transform:uppercase">' + WD[x.getDay()] + '</div></div>' +
         '<div class="col grow" style="gap:2px"><div style="font-size:13px;font-weight:700">' +
-        esc(group(s).name) + ' · ' + ((slotOf(group(s), isowd(x)) || {}).time || '') + '</div>' +
+        esc(group(s).name) + ' · ' + ((slotOf(group(s), k) || {}).time || '') + '</div>' +
         '<div style="font-size:11px;font-weight:500;color:var(--ink2)">' +
         (k === st.last ? 'последнее по абонементу №' + s.abonement.no : 'по абонементу №' + s.abonement.no) + '</div></div></div>';
     }).join('');
@@ -874,10 +887,10 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
        в другое время — во вторник это соседнее занятие, 18:00 и 19:00. */
     var others = D.students.filter(function (s) {
       if (vis.indexOf(s) >= 0) return false;
-      var my = slotOf(group(s), L.wd);
+      var my = slotOf(group(s), DAY);
       return L.groups.some(function (g) {
         return g.id !== s.groupId && !isOff(DAY, g.id) &&
-               (!my || my.time !== slotOf(g, L.wd).time);
+               (!my || my.time !== slotOf(g, DAY).time);
       });
     });
     var total = L.roster.length + guests.length + vis.length;
@@ -906,10 +919,14 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
     }
 
     var body = '';
-    L.groups.forEach(function (g) {
+    if (L.together) {
+      var cap = L.groups.reduce(function (n, g) { return n + g.capacity; }, 0);
+      body += section('Все вместе · ' + WDFULL[t.getDay()] + ' ' + L.time,
+                      L.roster.length + ' из ' + cap + ' мест', L.roster.map(rowFor).join(''));
+    } else L.groups.forEach(function (g) {
       var rs = L.roster.filter(function (s) { return s.groupId === g.id; });
       if (!rs.length) return;
-      body += section(g.name + ' · ' + WDFULL[t.getDay()] + ' ' + slotOf(g, L.wd).time,
+      body += section(g.name + ' · ' + WDFULL[t.getDay()] + ' ' + slotOf(g, DAY).time,
                       rs.length + ' из ' + g.capacity + ' мест', rs.map(rowFor).join(''));
     });
     body += '<div class="col" style="gap:6px"><div class="row" style="justify-content:space-between;padding:0 2px">' +
@@ -922,7 +939,7 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
           '<div class="col grow" style="gap:1px"><div style="font-size:13.5px;font-weight:700;color:var(--mintL)">' + esc(s.name) + '</div>' +
           '<div style="font-size:10.5px;font-weight:600;color:var(--mint)">отработка' +
           (function () {
-            var h = hostGroup(s), sl = h && slotOf(h, L.wd);
+            var h = hostGroup(s), sl = h && slotOf(h, DAY);
             return h ? ' · ' + esc(h.name.toLowerCase()) + (sl ? ' в ' + sl.time : '') : '';
           })() + '</div></div>' +
           '<div class="box on" style="background:var(--mint);border-color:var(--mint)"><svg>' + SVG.check + '</svg></div></div>';
@@ -971,7 +988,7 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
     wireJournalNav(node, DAY);
     node.querySelector('#scrap').addEventListener('click', function () {
       if (!SERVER) { say('Отмена занятия появится, когда подключим сервер.'); return; }
-      act('/api/teacher/cancel', { date: DAY, groupId: L.many ? null : L.group.id,
+      act('/api/teacher/cancel', { date: DAY, groupId: (L.many || L.together) ? null : L.group.id,
                                    reason: 'отменено преподавателем', undo: !!L.off });
     });
     var av = node.querySelector('#addvisit');
