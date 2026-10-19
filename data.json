@@ -7,7 +7,8 @@
   "studio": {
     "abonementLessons": 8,
     "abonementPrice": 2500,
-    "dropInPrice": 600
+    "dropInPrice": 600,
+    "makeups": false
   },
   "teacher": {
     "telegramId": 0,
