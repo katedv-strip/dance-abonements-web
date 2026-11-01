@@ -594,6 +594,15 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
     var todo = makeupTodo(s);
     if (todo) v.push(todo);
 
+    if (s.nextAbonement) v.push(
+      '<div style="background:var(--mintT);border:1px solid rgba(45,212,160,.28);border-radius:18px;' +
+      'padding:13px 15px;display:flex;align-items:center;gap:12px">' +
+      '<svg class="ico" style="width:22px;height:22px;color:var(--mint);stroke-width:1.8;flex-shrink:0">' +
+      SVG.check + '</svg><div class="col grow" style="gap:2px;min-width:0">' +
+      '<div style="font-size:13px;font-weight:700;color:var(--mintL)">Следующий абонемент уже оплачен</div>' +
+      '<div style="font-size:11.5px;font-weight:500;color:var(--mint);line-height:1.35">' +
+      'начнётся ' + fmt(s.nextAbonement.startsAt) + ', когда закончится этот</div></div></div>');
+
     /* Если абонемент кончился, payBy мог уже пройти — тогда берём ближайший
        день по расписанию, а не вчерашнюю дату оплаты. */
     var nxt = st.dates.filter(function (k) { return k > TODAY; })[0] ||
@@ -766,7 +775,18 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
     }).join('');
 
     var payD = d(st.payBy);
-    var payCard = st.payBy.slice(0, 7) !== month ? '' : '<div style="background:var(--amberT2);border:1px solid rgba(255,178,60,.28);border-radius:18px;padding:10px 12px;display:flex;align-items:center;gap:12px">' +
+    var payCard = s.nextAbonement
+      ? (s.nextAbonement.startsAt.slice(0, 7) !== month ? '' :
+         (function () {
+           var nd2 = d(s.nextAbonement.startsAt);
+           return '<div style="background:var(--mintT);border:1px solid rgba(45,212,160,.28);border-radius:18px;padding:10px 12px;display:flex;align-items:center;gap:12px">' +
+             '<div style="width:44px;height:44px;border-radius:14px;background:rgba(45,212,160,.18);display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0">' +
+             '<div class="big" style="font-size:15px;color:var(--mintL)">' + nd2.getDate() + '</div>' +
+             '<div style="font-size:9.5px;font-weight:700;color:var(--mintL);text-transform:uppercase">' + WD[nd2.getDay()] + '</div></div>' +
+             '<div class="col grow" style="gap:2px"><div style="font-size:13px;font-weight:700;color:var(--mintL)">Абонемент №' + s.nextAbonement.no + ' оплачен</div>' +
+             '<div style="font-size:11px;font-weight:500;color:var(--mint)">первое занятие ' + fmt(s.nextAbonement.startsAt) + '</div></div></div>';
+         })())
+      : st.payBy.slice(0, 7) !== month ? '' : '<div style="background:var(--amberT2);border:1px solid rgba(255,178,60,.28);border-radius:18px;padding:10px 12px;display:flex;align-items:center;gap:12px">' +
       '<div style="width:44px;height:44px;border-radius:14px;background:var(--amberT);display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0">' +
       '<div class="big" style="font-size:15px;color:var(--amber)">' + payD.getDate() + '</div>' +
       '<div style="font-size:9.5px;font-weight:700;color:var(--amber);text-transform:uppercase">' + WD[payD.getDay()] + '</div></div>' +
