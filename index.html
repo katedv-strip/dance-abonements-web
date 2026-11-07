@@ -82,6 +82,8 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
 .cal .canmake  span{background:var(--mintT);border:1.5px dashed var(--mint);color:var(--mintL);font-weight:700}
 .cal .start{position:relative}
 .cal .start span{box-shadow:0 0 0 2px var(--surf),0 0 0 3.5px var(--vioL)}
+.cal .gift span{box-shadow:inset 0 0 0 2px var(--mintL)}
+.cal .gift.start span{box-shadow:inset 0 0 0 2px var(--mintL),0 0 0 2px var(--surf),0 0 0 3.5px var(--vioL)}
 .cal .start::after{content:'';position:absolute;top:1px;right:3px;width:6px;height:6px;border-radius:50%;
   background:var(--vioL);box-shadow:0 0 0 2px var(--surf)}
 .wd{text-align:center;font-size:10px;font-weight:700;color:var(--ink2);text-transform:uppercase;letter-spacing:.04em}
@@ -720,6 +722,10 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
     var days = new Date(y, mo + 1, 0).getDate();
     var lead = (first.getDay() + 6) % 7;
     var makeupDates = {}; makeupsOf(s).forEach(function (m) { makeupDates[m.date] = 1; });
+    /* подаренные занятия добавляются в конец абонемента */
+    var gifted = (s.bonuses || []).reduce(function (n, b) { return n + b.delta; }, 0);
+    var giftDays = {};
+    if (gifted > 0) st.dates.slice(-gifted).forEach(function (k) { giftDays[k] = 1; });
     /* первое занятие каждого абонемента — отсюда он и считается */
     var starts = {};
     (s.payments || []).forEach(function (pm) {
@@ -743,9 +749,11 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
       }
       if (cls === '' && can[k]) cls = 'canmake';
       if (k === TODAY && cls === '') cls = 'today';
+      if (giftDays[k]) cls += (cls ? ' ' : '') + 'gift';
       if (starts[k]) cls += (cls ? ' ' : '') + 'start';
       cells += '<div class="d ' + cls + '"' +
-        (starts[k] ? ' title="начало абонемента №' + starts[k] + '"' : '') +
+        (starts[k] ? ' title="начало абонемента №' + starts[k] + '"'
+                   : giftDays[k] ? ' title="подаренное занятие"' : '') +
         '><span>' + day + '</span></div>';
     }
     var tail = (7 - ((lead + days) % 7)) % 7;
@@ -759,7 +767,8 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
       ['background:var(--vioT);border:1.5px solid var(--vio)', 'впереди'],
       ['background:var(--amberT);border:1.5px dashed var(--amber)', 'оплата'],
       ['background:var(--vioT);box-shadow:0 0 0 1.5px var(--vioL)', 'новый абонемент']
-    ].concat(makeupsAllowed()
+    ].concat(gifted > 0
+      ? [['background:var(--surf2);box-shadow:inset 0 0 0 1.5px var(--mintL)', 'подарено']] : []).concat(makeupsAllowed()
       ? [['background:var(--mintT);border:1.5px dashed var(--mint)', 'можно прийти']] : []).map(function (x) { return '<div><span class="sw" style="' + x[0] + '"></span>' + x[1] + '</div>'; }).join('');
 
     var ahead = st.dates.filter(function (k) { return k > TODAY && k.slice(0, 7) === month; }).map(function (k) {
@@ -771,7 +780,9 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
         '<div class="col grow" style="gap:2px"><div style="font-size:13px;font-weight:700">' +
         withGroup(s, (slotOf(group(s), k) || {}).time || '') + '</div>' +
         '<div style="font-size:11px;font-weight:500;color:var(--ink2)">' +
-        (k === st.last ? 'последнее по абонементу №' + s.abonement.no : 'по абонементу №' + s.abonement.no) + '</div></div></div>';
+        (giftDays[k] ? '<span style="color:var(--mintL)">подаренное занятие</span>'
+          : k === st.last ? 'последнее по абонементу №' + s.abonement.no
+          : 'по абонементу №' + s.abonement.no) + '</div></div></div>';
     }).join('');
 
     var payD = d(st.payBy);
@@ -1149,6 +1160,7 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
 
   var ADDING = false;
   var PAYING = null;                     // у кого открыт выбор даты оплаты
+  var GIFTING = null, GIFTN = 1;         // кому дарим занятие и сколько
   function screenStudents() {
     if (OPEN) {
       var s = byId(OPEN);
@@ -1360,7 +1372,42 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
           '<button class="btn" id="paysave" style="height:50px;border-radius:17px;font-size:14.5px;box-shadow:none">Записать</button></div>'
         : '<div class="row" style="gap:9px">' +
           '<button class="btn" id="pay" style="flex:1 1 0;height:50px;border-radius:17px;font-size:14.5px;box-shadow:none">Отметить оплату</button>' +
-          '<button class="ghost" id="shift">Сдвинуть</button></div>') +
+          '<button class="ghost" id="gift">Подарить</button></div>') +
+      (GIFTING === s.id
+        ? '<div class="card" id="giftform" style="display:flex;flex-direction:column;gap:10px;padding:14px 15px">' +
+          '<div class="row" style="justify-content:space-between"><div class="lbl">Подарить занятие</div>' +
+          '<button id="giftcancel" style="border:0;background:none;color:var(--ink2);font-family:inherit;' +
+          'font-size:11.5px;font-weight:700;cursor:pointer">Отмена</button></div>' +
+          '<div class="row" style="gap:9px">' +
+          [1, 2, 3].map(function (n) {
+            return '<button class="gn" data-n="' + n + '" style="flex:1 1 0;height:44px;border-radius:14px;' +
+              'background:' + (n === GIFTN ? 'var(--mintT)' : 'var(--surf2)') + ';border:1px solid ' +
+              (n === GIFTN ? 'var(--mint)' : 'var(--bord)') + ';color:' +
+              (n === GIFTN ? 'var(--mintL)' : 'var(--ink2)') + ';font-family:inherit;font-size:14px;' +
+              'font-weight:700;cursor:pointer">+' + n + '</button>';
+          }).join('') + '</div>' +
+          '<input id="giftr" placeholder="За что — болела, уезжала…" autocomplete="off" ' +
+          'style="height:46px;border-radius:14px;background:var(--surf2);border:1px solid var(--bord);' +
+          'color:var(--ink);font-family:inherit;font-size:14px;font-weight:600;padding:0 14px;outline:none">' +
+          '<div class="muted">Занятия добавятся в конец абонемента, оплата не изменится. ' +
+          'В календаре они будут отмечены отдельно.</div>' +
+          '<button class="btn" id="giftsave" style="height:48px;border-radius:17px;font-size:14px;box-shadow:none">Подарить</button></div>'
+        : '') +
+      ((s.bonuses && s.bonuses.length)
+        ? '<div class="col" style="gap:6px">' +
+          s.bonuses.map(function (b) {
+            return '<div style="background:var(--mintT);border:1px solid rgba(45,212,160,.28);border-radius:14px;' +
+              'padding:9px 13px;display:flex;align-items:center;gap:10px">' +
+              '<div class="col grow" style="gap:1px;min-width:0">' +
+              '<div style="font-size:12.5px;font-weight:700;color:var(--mintL)">' +
+              (b.delta > 0 ? 'Подарено ' + b.delta + ' ' + plural(b.delta, 'занятие', 'занятия', 'занятий')
+                           : 'Снято ' + (-b.delta) + ' ' + plural(-b.delta, 'занятие', 'занятия', 'занятий')) + '</div>' +
+              '<div style="font-size:11px;font-weight:500;color:var(--mint)">' +
+              (b.reason ? esc(b.reason) + ' · ' : '') + fmt(b.at) + '</div></div>' +
+              '<button class="gdrop" data-b="' + b.id + '" style="border:0;background:none;color:var(--mint);' +
+              'font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0">Убрать</button></div>';
+          }).join('') + '</div>'
+        : '') +
       ((s.carryable && s.carryable.length)
         ? '<div style="background:var(--amberT2);border:1px solid rgba(255,178,60,.28);border-radius:18px;' +
           'padding:13px 15px;display:flex;align-items:center;gap:12px">' +
@@ -1381,7 +1428,9 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
       '<div style="font-size:14.5px;font-weight:700">История</div>' +
       '<div style="font-size:11.5px;font-weight:600;color:var(--ink2)">кто и когда отметил</div></div>' + rows + '</div></div>');
 
-    node.querySelector('#back').addEventListener('click', function () { OPEN = null; PAYING = null; render(); });
+    node.querySelector('#back').addEventListener('click', function () {
+      OPEN = null; PAYING = null; GIFTING = null; render();
+    });
     var rc = node.querySelector('#recode');
     if (rc) rc.addEventListener('click', function () {
       if (rc.dataset.sure !== '1') {
@@ -1432,13 +1481,29 @@ nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;st
       PAYING = null;
       act('/api/teacher/payment', { studentId: s.id, date: when });
     });
-    var shiftBtn = node.querySelector('#shift');
-    if (shiftBtn) shiftBtn.addEventListener('click', function () {
+    var giftBtn = node.querySelector('#gift');
+    if (giftBtn) giftBtn.addEventListener('click', function () {
       if (!SERVER) {
-        say('Сдвиг абонемента на одно занятие вперёд.\n\n(в демо не сохраняется)');
+        say('Подарок добавит занятие в конец абонемента.\n\n(в демо не сохраняется)');
         return;
       }
-      act('/api/teacher/shift', { studentId: s.id, by: 1 });
+      GIFTING = s.id; GIFTN = 1; render();
+    });
+    var giftCancel = node.querySelector('#giftcancel');
+    if (giftCancel) giftCancel.addEventListener('click', function () { GIFTING = null; render(); });
+    node.querySelectorAll('.gn').forEach(function (b) {
+      b.addEventListener('click', function () { GIFTN = +b.getAttribute('data-n'); render(); });
+    });
+    var giftSave = node.querySelector('#giftsave');
+    if (giftSave) giftSave.addEventListener('click', function () {
+      var why = node.querySelector('#giftr').value.trim(), n = GIFTN;
+      GIFTING = null;
+      act('/api/teacher/bonus', { studentId: s.id, delta: n, reason: why || null });
+    });
+    node.querySelectorAll('.gdrop').forEach(function (b) {
+      b.addEventListener('click', function () {
+        act('/api/teacher/bonus', { drop: +b.getAttribute('data-b') });
+      });
     });
     return node;
   }
